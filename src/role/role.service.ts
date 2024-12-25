@@ -17,7 +17,6 @@ export class RoleService {
     ) {}
     // 验证角色名称是否重复
     private async validateUniqueRoleName(name: string) {
-        console.log('验证角色名称是否重复', name);
         // 查询数据库中是否存在相同名称的角色
         // 如果存在，返回false，表示名称重复
         // 如果不存在，返回true，表示名称可用
@@ -32,6 +31,9 @@ export class RoleService {
      * @param menuIds 菜单 ID 数组
      */
     async assignMenusToRole(id: number, menuIds: number[]): Promise<Role> {
+        const logger = new Logger('RoleService');
+        // 确保 menuIds 为数组
+        const processedMenuIds = Array.isArray(menuIds) ? menuIds : [];
         // 查找角色，加载其现有的菜单关系
         const role = await this.usersRepository.findOne({
             where: { id: id },
@@ -41,20 +43,18 @@ export class RoleService {
         if (!role) {
             throw new NotFoundException('角色不存在');
         }
-        let arr = menuIds;
-        if (Array.isArray(menuIds)) {
-            arr = menuIds.map(Number);
-        }
+        // if (processedMenuIds.length > 0) {
         // 查询所有指定的菜单
         const menus = await this.menuRepository.find({
-            where: { id: In(arr) }, // 使用 In 操作符代替 findByIds
+            where: { id: In(processedMenuIds) }, // 使用 In 操作符代替 findByIds
         });
-
-        if (menus.length !== menuIds.length) {
-            throw new NotFoundException('部分菜单不存在');
-        }
+        // logger.log('menus:', menus);
+        // if (menus.length !== processedMenuIds.length) {
+        //     throw new NotFoundException('部分菜单不存在');
+        // }
         // 将菜单分配给角色
         role.menus = menus;
+        // }
         // 保存更新后的角色
         return this.usersRepository.save(role);
     }
@@ -106,9 +106,6 @@ export class RoleService {
         // await this.validateUniqueRoleName(updateRoleDto.name);
         // 首先检查用户是否存在
         const existingRole = await this.findOne(id);
-        console.log(existingRole, '666');
-
-        console.log('updateRoleDto:', updateRoleDto);
         if (!existingRole) {
             throw new HttpException('角色不存在', 404);
         }
