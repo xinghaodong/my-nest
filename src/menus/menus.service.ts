@@ -18,7 +18,10 @@ export class MenusService {
         console.log(menu, 'menu');
         // 使用 Object.assign 批量赋值
         Object.assign(menu, createMenuDto);
-
+        // 增加判断 如果是菜单唯一编码重复了禁止添加
+        if (await this.menuRepository.findOne({ where: { code: menu.code } })) {
+            throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
+        }
         // 如果传入了 parentId，设置父菜单
         if (parentId) {
             const parentMenu = await this.findOne(parentId);
@@ -71,6 +74,10 @@ export class MenusService {
         // 删除id
         delete updateMenuDto.id;
         const updateMenuItem = Object.assign(menuItem, updateMenuDto);
+        // 增加判断 如果是菜单唯一编码重复了禁止添加
+        if (await this.menuRepository.findOne({ where: { code: updateMenuDto.code } })) {
+            throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
+        }
         return this.menuRepository.save(updateMenuItem);
     }
     // 删除菜单

@@ -2,10 +2,11 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/response';
 import { HttpExceptionFilter } from './common/requestFailed';
-import { BadRequestException, HttpException, HttpStatus, ValidationError, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
 import { JwtAuthGuard } from './auth/jwt.auth.guard';
+import { log } from 'console';
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api'); // 设置全局路由前缀为 'api'
@@ -25,16 +26,17 @@ async function bootstrap() {
     app.useGlobalPipes(
         new ValidationPipe({
             transform: true, // 自动转换数据类型
-            whitelist: true, // 是否剔除未声明的字段
+            whitelist: false, // 是否剔除未声明的字段
             forbidNonWhitelisted: false, // 是否禁止未声明字段的存在
             transformOptions: {
                 enableImplicitConversion: true, // 禁用隐式类型转换
                 exposeUnsetFields: false, // 防止未设置字段被影响
             },
-            // exceptionFactory: errors => {
-            //     console.error(errors); // 打印验证错误
-            //     // return new BadRequestException(errors); // 返回自定义的异常信息
-            // },
+            exceptionFactory: errors => {
+                Logger.error(errors);
+                // console.error(errors); // 打印验证错误
+                // return new BadRequestException(errors); // 返回自定义的异常信息
+            },
         }),
     );
     // 设置全局守卫

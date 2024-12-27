@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsOptional, IsInt, Min, Max, IsNumber, ValidateNested, IsEmail, MinLength, IsString, Matches } from 'class-validator';
+import { IsOptional, MinLength, IsString, Matches, IsArray } from 'class-validator';
 import { IsNotEmpty } from 'class-validator';
 import { FileList } from '../../filelist/entities/filelist.entity';
 export class CreateInternaluserDto {
@@ -33,4 +33,7 @@ export class CreateInternaluserDto {
     @IsString()
     @IsOptional()
     password?: string;
+
+    // 可以是空数组
+    roleIds: number[];
 }

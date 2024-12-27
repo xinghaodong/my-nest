@@ -6,7 +6,7 @@ import { FileList } from './entities/filelist.entity';
 import { InternalUser } from '../internalusers/entities/internaluser.entity';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { v4 as uuidv4 } from 'uuid';
+// import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 @Global()
 @Module({
@@ -22,7 +22,7 @@ import * as fs from 'fs';
                     cb(null, uploadPath);
                 },
                 filename: (req, file, cb) => {
-                    const filename = `${uuidv4()}-${file.originalname}`;
+                    const filename = `${file.originalname}`;
                     cb(null, filename);
                 },
             }),

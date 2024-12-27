@@ -1,3 +1,4 @@
+import { InternalUser } from 'src/internalusers/entities/internaluser.entity';
 import { Menu } from 'src/menus/entities/menu.entity';
 import { Column, CreateDateColumn, Entity, JoinTable, ManyToMany, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
@@ -22,4 +23,8 @@ export class Role {
     @ManyToMany(() => Menu)
     @JoinTable() // 这个装饰器会告诉 TypeORM 需要创建中间表
     menus: Menu[];
+
+    @ManyToMany(() => InternalUser)
+    @JoinTable()
+    users: InternalUser[];
 }

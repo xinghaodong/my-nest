@@ -30,4 +30,9 @@ export class InternalusersController {
     update(@Body('id', new ParseIntPipe()) id: number, @Body() updateUserDto: UpdateInternaluserDto) {
         return this.internalusersService.update(id, updateUserDto);
     }
+    // 用户详情
+    @Get('detail')
+    findOneAll(@Query('id', new ParseIntPipe()) id: number) {
+        return this.internalusersService.findOneAll(id);
+    }
 }

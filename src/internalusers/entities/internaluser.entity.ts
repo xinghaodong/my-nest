@@ -1,5 +1,6 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, BeforeInsert } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, BeforeInsert, ManyToMany, JoinTable } from 'typeorm';
 import { FileList } from '../../filelist/entities/filelist.entity';
+import { Role } from '../../role/entities/role.entity';
 import { IsEmail, IsNotEmpty } from 'class-validator';
 import * as bcrypt from 'bcryptjs'; // 导入 bcrypt 加密库
 
@@ -36,12 +37,9 @@ export class InternalUser {
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
 
-    // @BeforeInsert() // 在插入前自动加密密码
-    // async hashPassword() {
-    //     if (this.password) {
-    //         console.log(this.password, '6777666');
-    //         const salt = await bcrypt.genSalt(10); // 生成盐
-    //         this.password = await bcrypt.hash(this.password, salt); // 密码加密
-    //     }
-    // }
+    @ManyToMany(() => Role)
+    @JoinTable()
+    roles: Role[];
+
+    roleIds?: number[];
 }

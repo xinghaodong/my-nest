@@ -33,11 +33,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
             console.log('验证结果：', result);
             return result as boolean;
         } catch (error) {
-            console.error('Token 验证失败：', error);
             // 验证失败，返回 401
             response.status(HttpStatus.OK).json({
                 code: 401,
-                message: 'Token 验证失败，请检查 Token 是否正确1',
+                message: 'Token 验证失败，请检查 Token 是否正确',
             });
             return false; // 阻止后续逻辑
         }
