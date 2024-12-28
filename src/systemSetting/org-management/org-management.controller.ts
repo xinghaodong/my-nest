@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { OrgManagementService } from './org-management.service';
 import { CreateOrgManagementDto } from './dto/create-org-management.dto';
 import { UpdateOrgManagementDto } from './dto/update-org-management.dto';
@@ -15,5 +15,18 @@ export class OrgManagementController {
     @Get()
     findAll() {
         return this.orgManagementService.findAll();
+    }
+
+    // 详情
+    @Get('detail')
+    findOneById(@Query('id') id: number) {
+        console.log(id)
+        return this.orgManagementService.findOneById(id);
+    }
+
+    // 删除
+    @Post('delete')
+    remove(@Body('id') id: number) {
+        return this.orgManagementService.remove(id);
     }
 }
