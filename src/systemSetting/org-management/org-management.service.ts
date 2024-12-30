@@ -21,15 +21,19 @@ export class OrgManagementService {
         return await this.orgManagementRepository.find();
     }
 
-    findOne(id: number) {
-        return `This action returns a #${id} orgManagement`;
+    // 详情
+    async findOneById(organid: number): Promise<OrgManagement> {
+        return await this.orgManagementRepository.findOneBy({ organid });
     }
 
-    update(id: number, updateOrgManagementDto: UpdateOrgManagementDto) {
-        return `This action updates a #${id} orgManagement`;
-    }
+    async update(organid: number, updateOrgManagementDto: UpdateOrgManagementDto) {}
 
-    async remove(id: number) {
-        return await this.orgManagementRepository.delete({ organid: id });
+    // 删除
+    async remove(organid: number): Promise<void> {
+        // return await this.orgManagementRepository.delete(organid);
+        const result = await this.orgManagementRepository.delete(organid);
+        if (result.affected === 0) {
+            throw new HttpException('User not found', 404);
+        }
     }
 }

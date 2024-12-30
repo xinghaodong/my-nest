@@ -7,6 +7,7 @@ import { Repository, ILike, FindManyOptions, In } from 'typeorm';
 import { FileList } from '../filelist/entities/filelist.entity';
 import { Role } from 'src/role/entities/role.entity';
 import * as bcrypt from 'bcryptjs';
+import { ConfigService } from '@nestjs/config';
 
 function formatUser(user: any) {
     return {
@@ -23,6 +24,7 @@ export class InternalusersService {
         private fileRepository: Repository<FileList>,
         @InjectRepository(Role)
         private roleRepository: Repository<Role>,
+        private readonly configService: ConfigService,
     ) {}
     // 检测邮箱，账号是否存在
     async checkEmail(user, upateid: number): Promise<void> {
@@ -111,7 +113,7 @@ export class InternalusersService {
             // 查找角色
             const roles = await this.roleRepository.find({ where: { id: In(roleIds) } });
             // 对密码进行加密
-            user.password = '888888'; // 设置默认密码
+            user.password = this.configService.get<string>('DEFAULT_PASSWORD'); // 设置默认密码
             const hashedPassword = await bcrypt.hash(user.password, 10);
             user.password = hashedPassword;
             const newUser = this.usersRepository.create({ ...user, roles });
