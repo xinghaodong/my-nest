@@ -29,10 +29,4 @@ export class OrgManagementController {
     remove(@Body('id') id: number) {
         return this.orgManagementService.remove(id);
     }
-
-    // 删除
-    @Post('delete')
-    remove(@Body('id') id: number) {
-        return this.orgManagementService.remove(+id);
-    }
 }
