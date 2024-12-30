@@ -30,7 +30,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         try {
             // 验证 Token
             const result = await super.canActivate(context);
-            console.log('验证结果：', result);
             return result as boolean;
         } catch (error) {
             // 验证失败，返回 401

@@ -2,7 +2,7 @@ import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
 
 export class CreateOrgManagementDto {
-    id: number;
+    organid: number;
 
     @IsString()
     @IsNotEmpty({ message: '菜单名称不能为空' })

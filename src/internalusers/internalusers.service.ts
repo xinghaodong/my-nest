@@ -8,6 +8,8 @@ import { FileList } from '../filelist/entities/filelist.entity';
 import { Role } from 'src/role/entities/role.entity';
 import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
+import { OrgManagementService } from '../systemSetting/org-management/org-management.service';
+import { plainToInstance } from 'class-transformer';
 
 function formatUser(user: any) {
     return {
@@ -22,9 +24,13 @@ export class InternalusersService {
         // 注入附件表
         @InjectRepository(FileList)
         private fileRepository: Repository<FileList>,
+        // 角色表
         @InjectRepository(Role)
         private roleRepository: Repository<Role>,
+        // 配置服务
         private readonly configService: ConfigService,
+        // 注入组织服务
+        private readonly orgManagementService: OrgManagementService, // 注入 OrgManagementService
     ) {}
     // 检测邮箱，账号是否存在
     async checkEmail(user, upateid: number): Promise<void> {
@@ -109,6 +115,8 @@ export class InternalusersService {
                 }
                 user.avatar = fileList; // 将 FileList 实体赋值给 avatar
             }
+            // 关联组织
+            const organization = await this.orgManagementService.findOne(user.organid);
             const { roleIds } = user;
             // 查找角色
             const roles = await this.roleRepository.find({ where: { id: In(roleIds) } });
@@ -116,7 +124,7 @@ export class InternalusersService {
             user.password = this.configService.get<string>('DEFAULT_PASSWORD'); // 设置默认密码
             const hashedPassword = await bcrypt.hash(user.password, 10);
             user.password = hashedPassword;
-            const newUser = this.usersRepository.create({ ...user, roles });
+            const newUser = this.usersRepository.create({ ...user, roles, organization });
             const result = await this.usersRepository.save(newUser); // 调用 save 方法
             return result;
         } catch (error) {
@@ -172,18 +180,27 @@ export class InternalusersService {
     }
     // 用户详情数据
     async findOneAll(id: number): Promise<InternalUser> {
+        // 这里有两种方式加载关联的表数据
+        // 1.使用 @Column 字段来存储外键 (organid)
+        // 2.使用 @ManyToOne 来建立外键关系
+        // 当前使用的是第1种
         const user = await this.usersRepository.findOne({
             where: { id },
             relations: ['roles', 'avatar'],
         });
         if (!user) {
-            throw new HttpException('没用找到用户', 404);
+            throw new HttpException('没找到用户', 404);
         }
         const roleIds = user.roles.map(item => item.id);
         delete user.roles;
+        // 转换实体为 DTO，自动排除 password 字段
+        const userDto = plainToInstance(InternalUser, user);
+        // 手动查询组织信息（懒加载）
+        // const organization = user.organid ? await this.orgManagementService.findOne(user.organid) : null;
         return {
-            ...user,
+            ...userDto,
             roleIds,
+            organid: user.organid,
         };
     }
 }

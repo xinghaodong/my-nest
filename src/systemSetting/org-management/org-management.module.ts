@@ -8,5 +8,6 @@ import { OrgManagement } from './entities/org-management.entity';
     imports: [TypeOrmModule.forFeature([OrgManagement])],
     controllers: [OrgManagementController],
     providers: [OrgManagementService],
+    exports: [OrgManagementService], // 导出服务
 })
 export class OrgManagementModule {}

@@ -5,9 +5,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { InternalUser } from './entities/internaluser.entity';
 import { FilelistModule } from '../filelist/filelist.module';
 import { Role } from 'src/role/entities/role.entity';
+import { OrgManagementModule } from '../systemSetting/org-management/org-management.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([InternalUser, Role])],
+    imports: [TypeOrmModule.forFeature([InternalUser, Role]), OrgManagementModule],
     controllers: [InternalusersController],
     providers: [InternalusersService],
     exports: [InternalusersService],

@@ -1,3 +1,4 @@
+import { InternalUser } from '@/src/internalusers/entities/internaluser.entity';
 import { IsNotEmpty } from 'class-validator';
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 
@@ -23,4 +24,7 @@ export class OrgManagement {
 
     @Column({ nullable: true })
     parentId: number | null;
+
+    @OneToMany(() => InternalUser, user => user.organization) // 一对多关系
+    employees: InternalUser[]; // 组织的员工列表
 }

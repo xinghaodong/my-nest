@@ -12,6 +12,12 @@ export class OrgManagementController {
         return this.orgManagementService.create(createOrgManagementDto);
     }
 
+    // 修改
+    @Post('update')
+    update(@Body('id') id: number, @Body() updateOrgManagementDto: UpdateOrgManagementDto) {
+        return this.orgManagementService.update(id, updateOrgManagementDto);
+    }
+
     @Get()
     findAll() {
         return this.orgManagementService.findAll();

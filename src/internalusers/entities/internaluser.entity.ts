@@ -1,8 +1,9 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, BeforeInsert, ManyToMany, JoinTable } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, ManyToMany, JoinTable } from 'typeorm';
 import { FileList } from '../../filelist/entities/filelist.entity';
 import { Role } from '../../role/entities/role.entity';
-import { IsEmail, IsNotEmpty } from 'class-validator';
-import * as bcrypt from 'bcryptjs'; // 导入 bcrypt 加密库
+import { IsEmail } from 'class-validator';
+import { OrgManagement } from '@/src/systemSetting/org-management/entities/org-management.entity';
+import { Exclude, Expose } from 'class-transformer';
 
 @Entity()
 export class InternalUser {
@@ -19,6 +20,7 @@ export class InternalUser {
     age: string;
 
     @Column()
+    @Exclude()
     password: string;
 
     // 邮箱
@@ -37,9 +39,19 @@ export class InternalUser {
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
 
+    // 关联的角色表
     @ManyToMany(() => Role)
     @JoinTable()
     roles: Role[];
 
     roleIds?: number[];
+
+    // 关联的组织表
+    @ManyToOne(() => OrgManagement, { nullable: true })
+    @JoinColumn({ name: 'organid' }) // 组织的外键字段
+    organization: OrgManagement;
+
+    // 组织 ID 字段
+    @Column({ nullable: true })
+    organid: number; // 直接使用外键 `organid` 字段
 }
