@@ -16,4 +16,10 @@ export class OrgManagementController {
     findAll() {
         return this.orgManagementService.findAll();
     }
+
+    // 删除
+    @Post('delete')
+    remove(@Body('id') id: number) {
+        return this.orgManagementService.remove(+id);
+    }
 }

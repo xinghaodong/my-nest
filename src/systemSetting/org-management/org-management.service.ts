@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { CreateOrgManagementDto } from './dto/create-org-management.dto';
 import { UpdateOrgManagementDto } from './dto/update-org-management.dto';
 import { OrgManagement } from './entities/org-management.entity';
@@ -10,7 +10,10 @@ export class OrgManagementService {
     @InjectRepository(OrgManagement)
     private orgManagementRepository: Repository<OrgManagement>;
     async create(createOrgManagementDto: CreateOrgManagementDto) {
-        console.log('createOrgManagementDto:', createOrgManagementDto);
+        // 增加判断 如果是菜单唯一编码重复了禁止添加
+        if (await this.orgManagementRepository.findOne({ where: { orgcode: createOrgManagementDto.orgcode } })) {
+            throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
+        }
         return await this.orgManagementRepository.save(createOrgManagementDto);
     }
 
@@ -26,7 +29,7 @@ export class OrgManagementService {
         return `This action updates a #${id} orgManagement`;
     }
 
-    remove(id: number) {
-        return `This action removes a #${id} orgManagement`;
+    async remove(id: number) {
+        return await this.orgManagementRepository.delete({ organid: id });
     }
 }
