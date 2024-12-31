@@ -68,4 +68,14 @@ export class AuthService {
             refreshToken: newRefreshToken,
         };
     }
+
+    // 新增解码方法
+    decode(token: string): any {
+        try {
+            // 使用 JwtService 的 decode 方法解码 token
+            return this.jwtService.decode(token);
+        } catch (error) {
+            throw new HttpException('Invalid token', HttpStatus.UNAUTHORIZED);
+        }
+    }
 }

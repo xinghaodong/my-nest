@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query, Req } from '@nestjs/common';
 import { MenusService } from './menus.service';
 import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
@@ -13,8 +13,8 @@ export class MenusController {
     }
 
     @Get()
-    findAll() {
-        return this.menusService.findAll();
+    findAll(@Req() req: any) {
+        return this.menusService.findAll(req);
     }
 
     // 更新
