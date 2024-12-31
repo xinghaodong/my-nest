@@ -4,7 +4,6 @@ import { UpdateMenuDto } from './dto/update-menu.dto';
 import { Menu } from './entities/menu.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { type } from 'os';
 import { AuthService } from '../auth/auth.service'; // 引入 AuthService
 import { RoleService } from '../role/role.service';
 import { InternalusersService } from '../internalusers/internalusers.service';
@@ -61,10 +60,10 @@ export class MenusService {
 
         // console.log(userId, 'userId');
         // 获取用户所属的角色
-        const roles = await this.roleService.getRoleMenus(userId);
-        if (!roles || roles.length === 0) {
-            throw new NotFoundException('No roles found for the user');
-        }
+        // const roles = await this.roleService.getRoleMenus(userId);
+        // if (!roles || roles.length === 0) {
+        //     throw new NotFoundException('No roles found for the user');
+        // }
 
         // 获取角色对应的菜单权限
         // const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
@@ -80,7 +79,6 @@ export class MenusService {
 
         // 按照 sorts 字段对菜单进行升序排序
         menus = menus.sort((a, b) => a.sorts - b.sorts);
-        console.log(menus, 'menus');
         // 创建一个结果数组，用来存储树形结构
         const result = [];
         // 遍历所有菜单并构建树形结构
