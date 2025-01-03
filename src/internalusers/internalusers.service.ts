@@ -1,4 +1,4 @@
-import { Injectable, HttpException, UploadedFile, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, HttpException, UploadedFile, HttpStatus, Logger, NotFoundException } from '@nestjs/common';
 import { CreateInternaluserDto } from './dto/create-internaluser.dto';
 import { UpdateInternaluserDto } from './dto/update-internaluser.dto';
 import { InternalUser } from './entities/internaluser.entity';
@@ -202,5 +202,18 @@ export class InternalusersService {
             roleIds,
             organid: user.organid,
         };
+    }
+
+    /**
+     * 根据用户id获取所属的
+     * @param userId 用户 ID 查询属于的角色
+     */
+    async getRoleMenusByUserId(userId: number): Promise<Role[]> {
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            relations: ['roles'], // 加载当前用户的角色
+        });
+
+        return user.roles;
     }
 }

@@ -26,6 +26,32 @@ export class RoleService {
         }
     }
     /**
+     * 根据用户id获取所属的菜单
+     * @param userId 用户 ID
+     */
+    // : Promise<Menu[]>
+    async getRoleMenusByUserId(userId: number) {
+        // 查找用户，加载其现有的角色关系
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+            relations: ['roles'], // 加载当前用户的角色
+        });
+
+        if (!user) {
+            throw new NotFoundException('用户不存在');
+        }
+        console.log('user:', user);
+
+        // // 获取用户的角色 ID 数组
+        // const roleIds = user.roles.map(role => role.id);
+
+        // // // 根据角色 ID 数组获取菜单
+        // const menus = await this.menuRepository.find({
+        //     where: { roleId: In(roleIds) }, // 使用In 操作符代替 findByIds
+        // });
+        // return menus;
+    }
+    /**
      * 分配菜单给角色
      * @param id 角色 ID
      * @param menuIds 菜单 ID 数组
@@ -120,5 +146,22 @@ export class RoleService {
 
     remove(id: number) {
         return `This action removes a #${id} role`;
+    }
+
+    /**
+     * 根据角色id数组获取对应的菜单
+     */
+    async getMenuIdsByRoleIds(roleIds: number[]): Promise<number[]> {
+        // 查找角色，加载其现有的菜单关系
+        const roles = await this.usersRepository.find({
+            where: { id: In(roleIds) },
+            relations: ['menus'], // 加载当前角色的菜单
+        });
+        if (!roles || roles.length === 0) {
+            throw new NotFoundException('No roles found for the given role IDs');
+        }
+        // 获取角色对应的菜单权限
+        const menuIds = roles.flatMap(role => role.menus.map(menu => menu.id));
+        return menuIds;
     }
 }

@@ -12,6 +12,7 @@ export class AuthService {
     ) {}
 
     async validateUser(username: string, password: string): Promise<any> {
+        console.log(username, password, 'username, password');
         const user = await this.userService.validateUser(username, password); // 调用用户服务中的验证逻辑
         console.log(user, 'user');
         if (user) {

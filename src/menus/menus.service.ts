@@ -3,7 +3,7 @@ import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { Menu } from './entities/menu.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service'; // 引入 AuthService
 import { RoleService } from '../role/role.service';
 import { InternalusersService } from '../internalusers/internalusers.service';
@@ -15,6 +15,7 @@ export class MenusService {
     constructor(
         private readonly authService: AuthService,
         private readonly roleService: RoleService, // 注入 RoleService
+        private readonly internalusersService: InternalusersService,
     ) {}
     async create(createMenuDto: CreateMenuDto): Promise<Menu> {
         const { parentId } = createMenuDto;
@@ -43,40 +44,35 @@ export class MenusService {
     }
 
     async findAll(req: any): Promise<Menu[]> {
-        // 获取用户角色信息，假设有一个 roleService 获取角色信息
-        // const userRoles = await this.roleService.getRolesByUserId(userId);
         // 从请求头获取 token
         const token = req.headers['authorization']?.split(' ')[1]; // 如果是 Bearer token 格式
         if (!token) {
             throw new NotFoundException('Token not found');
         }
-        // console.log(token, 'token');
-
         // 解码 token 获取 userId
         let userId = null;
-
         const decoded = this.authService.decode(token) as { sub: number };
         userId = decoded.sub;
+        let menus = [];
 
-        // console.log(userId, 'userId');
         // 获取用户所属的角色
-        // const roles = await this.roleService.getRoleMenus(userId);
-        // if (!roles || roles.length === 0) {
-        //     throw new NotFoundException('No roles found for the user');
-        // }
-
-        // 获取角色对应的菜单权限
-        // const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
-        // if (!menuIds || menuIds.length === 0) {
-        //     throw new NotFoundException('No menu permissions found for the user roles');
-        // }
-
-        // 获取所有菜单，过滤出当前角色有权限的菜单
-        // let menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
-
-        let menus = await this.menuRepository.find();
-        // 当前登录账号所属的角色菜单拥有的菜单权限
-
+        const roles = await this.internalusersService.getRoleMenusByUserId(userId);
+        if (!roles || roles.length === 0) {
+            throw new NotFoundException('没有找到用户对应的角色');
+        }
+        // 如果不存在超级管理员角色，就获取当前用户的菜单权限
+        if (roles.some(role => role.name !== '超级管理员')) {
+            // 获取角色对应的菜单权限
+            const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
+            if (!menuIds || menuIds.length === 0) {
+                throw new NotFoundException('没有找到用户角色的菜单权限');
+            }
+            // 获取所有菜单，过滤出当前角色有权限的菜单
+            menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
+        } else {
+            // 存在超管角色 查所有
+            menus = await this.menuRepository.find();
+        }
         // 按照 sorts 字段对菜单进行升序排序
         menus = menus.sort((a, b) => a.sorts - b.sorts);
         // 创建一个结果数组，用来存储树形结构
@@ -128,6 +124,19 @@ export class MenusService {
     }
     // 详情接口
     async detail(id: number): Promise<Menu> {
-        return await this.menuRepository.findOne({ where: { id } });
+        // return await this.menuRepository.findOne({ where: { id } });
+
+        const menu = await this.menuRepository.findOne({
+            where: { id },
+            relations: ['roles'],
+        });
+        if (!menu) {
+            throw new HttpException('没找到用户', 404);
+        }
+        const roleIds = menu.roles.map(item => item.id);
+
+        return {
+            ...menu,
+        };
     }
 }

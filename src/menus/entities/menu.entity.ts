@@ -46,6 +46,14 @@ export class Menu {
     @Column({ nullable: false })
     code: string;
 
+    // 资源类型 菜单 or 按钮
+    @Column({ nullable: false })
+    menutype: string;
+
+    // 资源标识 perms
+    @Column({ nullable: true })
+    perms: string;
+
     @ManyToMany(() => Role)
     @JoinTable() // 同样可以在 Menu 实体中使用 @JoinTable，表示这也是一个多对多关系
     roles: Role[];
