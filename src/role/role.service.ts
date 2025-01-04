@@ -164,4 +164,15 @@ export class RoleService {
         const menuIds = roles.flatMap(role => role.menus.map(menu => menu.id));
         return menuIds;
     }
+
+    // 新增一个方法：通过角色 ID 获取角色实体
+    async getRolesByIds(roleIds: number[]): Promise<Role[]> {
+        const roles = await this.usersRepository.find({
+            where: { id: In(roleIds) },
+        });
+        if (!roles || roles.length !== roleIds.length) {
+            throw new NotFoundException('部分角色不存在');
+        }
+        return roles;
+    }
 }

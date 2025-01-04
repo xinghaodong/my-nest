@@ -3,7 +3,7 @@ import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { Menu } from './entities/menu.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service'; // 引入 AuthService
 import { RoleService } from '../role/role.service';
 import { InternalusersService } from '../internalusers/internalusers.service';
@@ -18,7 +18,7 @@ export class MenusService {
         private readonly internalusersService: InternalusersService,
     ) {}
     async create(createMenuDto: CreateMenuDto): Promise<Menu> {
-        const { parentId } = createMenuDto;
+        const { parentId, roleIds } = createMenuDto;
 
         // 创建新的菜单实例
         const menu = new Menu();
@@ -39,7 +39,16 @@ export class MenusService {
                 throw new Error('找不到父菜单'); // 如果找不到父菜单，抛出错误
             }
         }
-        console.log(menu, 'menu');
+        // 处理角色关联
+        if (roleIds && roleIds.length > 0) {
+            // 查询所有指定的角色
+            const roles = await this.roleService.getRolesByIds(roleIds);
+            if (roles.length !== roleIds.length) {
+                throw new HttpException('部分角色不存在', HttpStatus.BAD_REQUEST);
+            }
+            menu.roles = roles; // 设置关联角色
+        }
+
         return this.menuRepository.save(createMenuDto);
     }
 
@@ -110,7 +119,17 @@ export class MenusService {
         delete updateMenuDto.id;
         const updateMenuItem = Object.assign(menuItem, updateMenuDto);
         // 增加判断 如果是菜单唯一编码重复了禁止添加
-        if (await this.menuRepository.findOne({ where: { code: updateMenuDto.code } })) {
+        // if (await this.menuRepository.findOne({ where: { code: updateMenuDto.code } })) {
+        //     throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
+        // }
+        // 检查是否存在其他记录的编码与 updateMenuDto.code 相同
+        const existingMenu = await this.menuRepository.findOne({
+            where: {
+                code: updateMenuDto.code,
+                id: Not(id), // 排除当前正在更新的记录
+            },
+        });
+        if (existingMenu) {
             throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
         }
         return this.menuRepository.save(updateMenuItem);
@@ -124,19 +143,9 @@ export class MenusService {
     }
     // 详情接口
     async detail(id: number): Promise<Menu> {
-        // return await this.menuRepository.findOne({ where: { id } });
-
-        const menu = await this.menuRepository.findOne({
+        return await this.menuRepository.findOne({
             where: { id },
-            relations: ['roles'],
+            relations: ['roles'], // 加载关联的角色表
         });
-        if (!menu) {
-            throw new HttpException('没找到用户', 404);
-        }
-        const roleIds = menu.roles.map(item => item.id);
-
-        return {
-            ...menu,
-        };
     }
 }

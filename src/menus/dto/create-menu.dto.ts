@@ -47,4 +47,9 @@ export class CreateMenuDto {
     @IsString()
     @IsNotEmpty({ message: '资源编码不能为空' })
     code: string;
+
+    // 角色集合
+    @IsOptional()
+    @Type(() => Number)
+    roleIds?: number[];
 }
