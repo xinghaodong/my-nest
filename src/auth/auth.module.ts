@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -6,9 +6,11 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { InternalusersModule } from '../internalusers/internalusers.module'; // 引入用户模块
 import { ConfigService, ConfigModule } from '@nestjs/config';
+import { MenusModule } from '../menus/menus.module';
 
 @Module({
     imports: [
+        forwardRef(() => MenusModule), //在里需要使用 forwardRef 解决循环依赖问题
         InternalusersModule,
         PassportModule,
         JwtModule.registerAsync({

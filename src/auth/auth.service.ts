@@ -1,7 +1,8 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { forwardRef, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InternalusersService } from '../internalusers/internalusers.service';
 import { ConfigService } from '@nestjs/config';
+import { MenusService } from '../menus/menus.service';
 
 @Injectable()
 export class AuthService {
@@ -9,10 +10,11 @@ export class AuthService {
         private readonly userService: InternalusersService,
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
+        @Inject(forwardRef(() => MenusService)) // 在里需要使用 forwardRef 解决循环依赖问题
+        private readonly menuService: MenusService,
     ) {}
 
     async validateUser(username: string, password: string): Promise<any> {
-        console.log(username, password, 'username, password');
         const user = await this.userService.validateUser(username, password); // 调用用户服务中的验证逻辑
         // console.log(user, 'user');
         if (user) {
@@ -22,14 +24,18 @@ export class AuthService {
         throw new HttpException('用户或密码不正确', HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-    async login(user: any): Promise<{ token: string; refreshToken: string }> {
+    async login(user: any): Promise<{ token: string; refreshToken: string; perms: string[] }> {
         const payload = { username: user.username, sub: user.id };
+        // 根据用户id 查询菜单按钮权限
+        const perms = await this.menuService.getPermsByUserId(user.id);
+        console.log('perms', perms);
         return {
             token: this.jwtService.sign(payload),
             refreshToken: this.jwtService.sign(payload, {
                 secret: this.configService.get<string>('REFRESH_SECRET'),
                 expiresIn: this.configService.get<string>('REFRESH_EXPIRES_IN'),
             }),
+            perms,
         };
     }
 

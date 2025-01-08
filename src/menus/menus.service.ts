@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { forwardRef, HttpException, HttpStatus, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { Menu } from './entities/menu.entity';
@@ -13,6 +13,7 @@ export class MenusService {
     @InjectRepository(Menu)
     private menuRepository: Repository<Menu>;
     constructor(
+        @Inject(forwardRef(() => AuthService)) // 在里需要使用 forwardRef 解决循环依赖问题
         private readonly authService: AuthService,
         private readonly roleService: RoleService, // 注入 RoleService
         private readonly internalusersService: InternalusersService,
@@ -58,7 +59,33 @@ export class MenusService {
         return savedMenu;
     }
 
+    async getPermsByUserId(id: number): Promise<any> {
+        let menus = [];
+        // 获取用户所属的角色
+        const roles = await this.internalusersService.getRoleMenusByUserId(id);
+        if (!roles || roles.length === 0) {
+            throw new NotFoundException('没有找到用户对应的角色');
+        }
+        // 如果不存在超级管理员角色，就获取当前用户的菜单权限
+        if (roles.some(role => role.name !== '超级管理员')) {
+            // 获取角色对应的菜单权限
+            const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
+            // 获取所有菜单，过滤出当前角色有权限的菜单
+            menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
+        } else {
+            // 存在超管角色 查所有
+            menus = await this.menuRepository.find();
+        }
+        // 过滤菜单 menutype == 1的 只保留menutype == 2
+        menus = menus.filter(menu => menu.menutype == 2);
+        const perms = menus.map(menu => menu.perms);
+        console.log('menusssssssssssssssssss', menus);
+        return perms;
+        // return { perms: roles.perms };
+    }
+
     async findAll(req: any): Promise<Menu[]> {
+        const { type } = req.query;
         // 从请求头获取 token
         const token = req.headers['authorization']?.split(' ')[1]; // 如果是 Bearer token 格式
         if (!token) {
@@ -80,7 +107,7 @@ export class MenusService {
             // 获取角色对应的菜单权限
             const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
             if (!menuIds || menuIds.length === 0) {
-                throw new NotFoundException('没有找到用户角色的菜单权限');
+                // throw new NotFoundException('没有找到用户角色的菜单权限');
             }
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
@@ -89,7 +116,10 @@ export class MenusService {
             // 存在超管角色 查所有
             menus = await this.menuRepository.find();
         }
-        // console.log(roles, '当前账号roles');
+        // 前端掺入type:1 把按钮类型的资源过滤掉
+        if (type == 1) {
+            menus = menus.filter(item => item.menutype != 2);
+        }
         // 按照 sorts 字段对菜单进行升序排序
         menus = menus.sort((a, b) => a.sorts - b.sorts);
         // 创建一个结果数组，用来存储树形结构
@@ -160,7 +190,6 @@ export class MenusService {
             throw new HttpException('未找到菜单', 404);
         }
     }
-    // 详情接口
     // 详情接口
     async detail(id: number): Promise<Menu> {
         const menu = await this.menuRepository
