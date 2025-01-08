@@ -5,7 +5,6 @@ import { Role } from './entities/role.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Menu } from '../menus/entities/menu.entity';
-import { console } from 'inspector';
 
 @Injectable()
 export class RoleService {
@@ -40,7 +39,6 @@ export class RoleService {
         if (!user) {
             throw new NotFoundException('用户不存在');
         }
-        console.log('user:', user);
 
         // // 获取用户的角色 ID 数组
         // const roleIds = user.roles.map(role => role.id);
@@ -57,7 +55,6 @@ export class RoleService {
      * @param menuIds 菜单 ID 数组
      */
     async assignMenusToRole(id: number, menuIds: number[]): Promise<Role> {
-        const logger = new Logger('RoleService');
         // 确保 menuIds 为数组
         const processedMenuIds = Array.isArray(menuIds) ? menuIds : [];
         // 查找角色，加载其现有的菜单关系
@@ -72,25 +69,20 @@ export class RoleService {
         // if (processedMenuIds.length > 0) {
         // 查询所有指定的菜单
         const menus = await this.menuRepository.find({
-            where: { id: In(processedMenuIds) }, // 使用 In 操作符代替 findByIds
+            where: { id: In(processedMenuIds) },
         });
-        // logger.log('menus:', menus);
-        // if (menus.length !== processedMenuIds.length) {
-        //     throw new NotFoundException('部分菜单不存在');
-        // }
         // 将菜单分配给角色
         role.menus = menus;
         // }
         // 保存更新后的角色
         return this.usersRepository.save(role);
     }
+
     /**
      * 获取角色权限
      * @param id 角色 ID
      */
     async getRoleMenus(id: number): Promise<Menu[]> {
-        const logger = new Logger('RoleService');
-
         // 查找角色，加载其现有的菜单关系
         const role = await this.usersRepository.findOne({
             where: { id: id },
@@ -99,6 +91,7 @@ export class RoleService {
         if (!role) {
             throw new NotFoundException('角色不存在');
         }
+        console.log('role.menus', role);
         let arrIds = [];
         if (Array.isArray(role.menus) && role.menus.length > 0) {
             arrIds = role.menus.map(item => item.id);
@@ -115,6 +108,7 @@ export class RoleService {
     }
 
     findAll() {
+        console.log('findAll');
         return this.usersRepository.find();
     }
 

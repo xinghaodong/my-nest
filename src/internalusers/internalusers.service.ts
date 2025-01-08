@@ -80,11 +80,8 @@ export class InternalusersService {
         const isPasswordValid = await bcrypt.compare(password, user.password);
         console.log('password match result:', isPasswordValid);
         if (isPasswordValid) {
-            console.log('验证成功');
             return user; // 验证成功返回用户对象
         }
-
-        console.log('密码验证失败');
         return null; // 验证失败返回 null
     }
 

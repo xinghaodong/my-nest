@@ -22,13 +22,14 @@ export class MenusService {
 
         // 创建新的菜单实例
         const menu = new Menu();
-        console.log(menu, 'menu');
         // 使用 Object.assign 批量赋值
         Object.assign(menu, createMenuDto);
+
         // 增加判断 如果是菜单唯一编码重复了禁止添加
         if (await this.menuRepository.findOne({ where: { code: menu.code } })) {
             throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
         }
+
         // 如果传入了 parentId，设置父菜单
         if (parentId) {
             const parentMenu = await this.findOne(parentId);
@@ -39,6 +40,7 @@ export class MenusService {
                 throw new Error('找不到父菜单'); // 如果找不到父菜单，抛出错误
             }
         }
+
         // 处理角色关联
         if (roleIds && roleIds.length > 0) {
             // 查询所有指定的角色
@@ -46,10 +48,14 @@ export class MenusService {
             if (roles.length !== roleIds.length) {
                 throw new HttpException('部分角色不存在', HttpStatus.BAD_REQUEST);
             }
+
             menu.roles = roles; // 设置关联角色
         }
 
-        return this.menuRepository.save(createMenuDto);
+        // 级联保存菜单及其角色关联
+        const savedMenu = await this.menuRepository.save(menu);
+
+        return savedMenu;
     }
 
     async findAll(req: any): Promise<Menu[]> {
@@ -79,9 +85,11 @@ export class MenusService {
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
         } else {
+            // console.log('当前账号存在超管角色');
             // 存在超管角色 查所有
             menus = await this.menuRepository.find();
         }
+        // console.log(roles, '当前账号roles');
         // 按照 sorts 字段对菜单进行升序排序
         menus = menus.sort((a, b) => a.sorts - b.sorts);
         // 创建一个结果数组，用来存储树形结构
@@ -110,19 +118,15 @@ export class MenusService {
     }
     // 修改菜单
     async update(id: number, updateMenuDto: UpdateMenuDto): Promise<Menu> {
-        console.log('updateMenuDto in service:', updateMenuDto);
         const menuItem = await this.menuRepository.findOne({ where: { id } });
         if (!menuItem) {
             throw new HttpException('菜单不存在', 404);
         }
+
         // 删除id
         delete updateMenuDto.id;
-        const updateMenuItem = Object.assign(menuItem, updateMenuDto);
-        // 增加判断 如果是菜单唯一编码重复了禁止添加
-        // if (await this.menuRepository.findOne({ where: { code: updateMenuDto.code } })) {
-        //     throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
-        // }
-        // 检查是否存在其他记录的编码与 updateMenuDto.code 相同
+
+        // 检查菜单唯一编码是否重复
         const existingMenu = await this.menuRepository.findOne({
             where: {
                 code: updateMenuDto.code,
@@ -132,7 +136,22 @@ export class MenusService {
         if (existingMenu) {
             throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
         }
-        return this.menuRepository.save(updateMenuItem);
+        // 处理角色关联
+        if (updateMenuDto.roleIds && updateMenuDto.roleIds.length > 0) {
+            // 查询所有指定的角色
+            const roles = await this.roleService.getRolesByIds(updateMenuDto.roleIds);
+            if (roles.length !== updateMenuDto.roleIds.length) {
+                throw new HttpException('部分角色不存在', HttpStatus.BAD_REQUEST);
+            }
+            // 添加新的角色
+            menuItem.roles = roles; // 更新角色关联
+        } else {
+            menuItem.roles = []; // 清空原有的角色关联
+        }
+        // 使用 Object.assign 更新字段
+        const updatedMenuItem = Object.assign(menuItem, updateMenuDto);
+        // 保存更新后的菜单
+        return this.menuRepository.save(updatedMenuItem);
     }
     // 删除菜单
     async remove(id: number): Promise<void> {
@@ -142,10 +161,22 @@ export class MenusService {
         }
     }
     // 详情接口
+    // 详情接口
     async detail(id: number): Promise<Menu> {
-        return await this.menuRepository.findOne({
-            where: { id },
-            relations: ['roles'], // 加载关联的角色表
-        });
+        const menu = await this.menuRepository
+            .createQueryBuilder('menu')
+            .leftJoinAndSelect('menu.roles', 'role') // 手动加载角色
+            .where('menu.id = :id', { id })
+            .getOne();
+
+        if (menu && menu.roles) {
+            // 添加 roleIds 属性到结果对象中
+            menu.roleIds = menu.roles.map(role => role.id);
+            delete menu.roles;
+        } else {
+            menu.roleIds = []; // 如果没有角色，则返回空数组
+        }
+
+        return menu;
     }
 }

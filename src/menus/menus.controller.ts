@@ -20,7 +20,6 @@ export class MenusController {
     // 更新
     @Post('/update')
     update(@Body('id', new ParseIntPipe()) id: number, @Body() updateMenuDto: UpdateMenuDto) {
-        console.log(updateMenuDto, 'updateMenuDto');
         return this.menusService.update(id, updateMenuDto);
     }
 

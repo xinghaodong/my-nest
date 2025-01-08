@@ -54,7 +54,7 @@ export class Menu {
     @Column({ nullable: true })
     perms: string;
 
-    @ManyToMany(() => Role)
-    @JoinTable() // 同样可以在 Menu 实体中使用 @JoinTable，表示这也是一个多对多关系
+    @ManyToMany(() => Role, role => role.menus) // 确保这个指向 Role 实体的 menus 属性
     roles: Role[];
+    roleIds: number[];
 }

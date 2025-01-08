@@ -26,7 +26,6 @@ export class OrgManagementController {
     // 详情
     @Get('detail')
     findOneById(@Query('id') id: number) {
-        console.log(id);
         return this.orgManagementService.findOneById(id);
     }
 

@@ -17,7 +17,6 @@ export class InternalusersController {
     // 新增用户
     @Post('add')
     async create(@Body() createInternaluserDto: CreateInternaluserDto): Promise<InternalUser> {
-        console.log(createInternaluserDto, 'createInternaluserDto');
         return this.internalusersService.create(createInternaluserDto);
     }
     // 删除用户
