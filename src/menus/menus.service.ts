@@ -59,6 +59,11 @@ export class MenusService {
         return savedMenu;
     }
 
+    /**
+     * 获取用户的按钮权限
+     * @param id
+     * @returns
+     */
     async getPermsByUserId(id: number): Promise<any> {
         let menus = [];
         // 获取用户所属的角色
@@ -79,7 +84,6 @@ export class MenusService {
         // 过滤菜单 menutype == 1的 只保留menutype == 2
         menus = menus.filter(menu => menu.menutype == 2);
         const perms = menus.map(menu => menu.perms);
-        console.log('menusssssssssssssssssss', menus);
         return perms;
         // return { perms: roles.perms };
     }

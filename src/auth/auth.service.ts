@@ -16,19 +16,22 @@ export class AuthService {
 
     async validateUser(username: string, password: string): Promise<any> {
         const user = await this.userService.validateUser(username, password); // 调用用户服务中的验证逻辑
-        // console.log(user, 'user');
         if (user) {
             const { password, ...result } = user; // 不返回密码
             return result;
         }
         throw new HttpException('用户或密码不正确', HttpStatus.INTERNAL_SERVER_ERROR);
     }
-
-    async login(user: any): Promise<{ token: string; refreshToken: string; perms: string[] }> {
+    /**
+     * 登录函数
+     * 生成用户登录所需的token、refreshToken、权限列表和用户信息对象
+     * @param user 包含用户信息的对象，至少需要有username和id属性
+     * @returns 返回一个Promise对象，包含token、refreshToken、perms和informationObject
+     */
+    async login(user: any): Promise<{ token: string; refreshToken: string; perms: string[]; informationObject: object }> {
         const payload = { username: user.username, sub: user.id };
-        // 根据用户id 查询菜单按钮权限
         const perms = await this.menuService.getPermsByUserId(user.id);
-        console.log('perms', perms);
+        const informationObject = await this.userService.findOneAll(user.id);
         return {
             token: this.jwtService.sign(payload),
             refreshToken: this.jwtService.sign(payload, {
@@ -36,6 +39,7 @@ export class AuthService {
                 expiresIn: this.configService.get<string>('REFRESH_EXPIRES_IN'),
             }),
             perms,
+            informationObject,
         };
     }
 
