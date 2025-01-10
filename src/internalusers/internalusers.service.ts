@@ -100,9 +100,16 @@ export class InternalusersService {
         const formattedData = data.map(formatUser);
         return { data: formattedData, total };
     }
+    /**
+     * 创建内部用户
+     * 此函数负责处理内部用户的创建逻辑，包括验证邮箱、关联文件和角色、密码加密等步骤
+     * @param user CreateInternaluserDto 类型的对象，包含创建用户所需的信息
+     * @returns 返回 Promise<InternalUser> 类型的 Promise 对象
+     */
     async create(user: CreateInternaluserDto): Promise<InternalUser> {
         const logger = new Logger('InternalusersService');
         try {
+            // 检查邮箱是否可用
             await this.checkEmail(user, 0);
             // 如果传了 avatars，则找到对应的 FileList 实体
             if (user.avatars) {
@@ -115,12 +122,13 @@ export class InternalusersService {
             // 关联组织
             const organization = await this.orgManagementService.findOne(user.organid);
             const { roleIds } = user;
-            // 查找角色
+            // 根据角色 ID 数组查找角色实体
             const roles = await this.roleRepository.find({ where: { id: In(roleIds) } });
             // 对密码进行加密
             user.password = this.configService.get<string>('DEFAULT_PASSWORD'); // 设置默认密码
             const hashedPassword = await bcrypt.hash(user.password, 10);
             user.password = hashedPassword;
+            // 创建一个新的用户实体，并关联角色和组织
             const newUser = this.usersRepository.create({ ...user, roles, organization });
             const result = await this.usersRepository.save(newUser); // 调用 save 方法
             return result;
@@ -172,7 +180,7 @@ export class InternalusersService {
     async remove(id: number): Promise<void> {
         const result = await this.usersRepository.delete(id);
         if (result.affected === 0) {
-            throw new HttpException('User not found', 404);
+            throw new HttpException('没找到用户', 404);
         }
     }
     // 用户详情数据

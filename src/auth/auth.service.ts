@@ -86,7 +86,7 @@ export class AuthService {
             // 使用 JwtService 的 decode 方法解码 token
             return this.jwtService.decode(token);
         } catch (error) {
-            throw new HttpException('Invalid token', HttpStatus.UNAUTHORIZED);
+            throw new HttpException('token 失效', HttpStatus.UNAUTHORIZED);
         }
     }
 }
