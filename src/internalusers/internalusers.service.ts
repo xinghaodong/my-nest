@@ -172,7 +172,7 @@ export class InternalusersService {
     }
     // 根据id查找人员实现controller里的findOne方法
     async findOne(id: number): Promise<InternalUser> {
-        return this.usersRepository.findOneBy({
+        return await this.usersRepository.findOneBy({
             id: id,
         });
     }

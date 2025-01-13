@@ -17,6 +17,7 @@ import { RoleModule } from './role/role.module';
 import { DateFormatMiddleware } from './common/middleware/formattingTime';
 import { AuthModule } from './auth/auth.module';
 import { OrgManagementModule } from './systemSetting/org-management/org-management.module';
+import { ProcessApprovalModule } from './process-approval/process-approval.module';
 
 @Module({
     imports: [
@@ -56,7 +57,7 @@ import { OrgManagementModule } from './systemSetting/org-management/org-manageme
         MenusModule,
         RoleModule,
         AuthModule, // 导入 InternalusersModule
-        OrgManagementModule,
+        OrgManagementModule, ProcessApprovalModule,
     ],
     controllers: [AppController],
     providers: [AppService],
