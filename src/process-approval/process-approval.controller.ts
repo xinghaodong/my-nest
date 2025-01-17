@@ -16,4 +16,9 @@ export class ProcessApprovalController {
     async findAll(@Query('page') page: number = 1, @Query('pageSize') pageSize: number = 10) {
         return await this.processApprovalService.findAll(page, pageSize);
     }
+
+    @Get('detail')
+    async findOne(@Query('id') id: number) {
+        return await this.processApprovalService.findOne(id);
+    }
 }

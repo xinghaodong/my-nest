@@ -28,7 +28,7 @@ export class ProcessApprovalService {
     }
 
     findOne(id: number) {
-        return `This action returns a #${id} processApproval`;
+        return this.processTemplateRepository.findOneBy({ id: id });
     }
 
     update(id: number, updateProcessApprovalDto: UpdateProcessApprovalDto) {

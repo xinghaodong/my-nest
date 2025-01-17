@@ -81,7 +81,7 @@ export class MenusService {
             // 存在超管角色 查所有
             menus = await this.menuRepository.find();
         }
-        // 过滤菜单 menutype == 1的 只保留menutype == 2
+        // 过滤掉 menutype == 1
         menus = menus.filter(menu => menu.menutype == 2);
         const perms = menus.map(menu => menu.perms);
         return perms;
