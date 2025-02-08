@@ -25,6 +25,15 @@ jobs:
               with:
                   node-version: ${{ matrix.node-version }}
                   cache: 'npm'
-            - run: npm ci
-            - run: npm run build --if-present
-            - run: npm test
+
+            - name: Clean and Install Dependencies
+              run: |
+                  rm -rf node_modules package-lock.json
+                  npm cache clean --force
+                  npm install --legacy-peer-deps
+
+            - name: Build Project
+              run: npm run build --if-present
+
+            - name: Run Tests
+              run: npm test
