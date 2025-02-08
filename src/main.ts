@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/response';
 import { HttpExceptionFilter } from './common/requestFailed';
 import { BadRequestException, HttpException, HttpStatus, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
 import { JwtAuthGuard } from './auth/jwt.auth.guard';
@@ -43,6 +44,17 @@ async function bootstrap() {
     const reflector = app.get(Reflector);
     app.useGlobalGuards(new JwtAuthGuard(reflector));
     app.useGlobalFilters(new HttpExceptionFilter());
-    await app.listen(process.env.PORT ?? 3001);
+    // 启用 CORS
+    app.enableCors({
+        origin: '*', // 允许所有来源访问
+        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+        allowedHeaders: 'Content-Type, Authorization',
+    });
+    const configService = app.get(ConfigService);
+    const port = configService.get<number>('PORT', 3000);
+    const host = configService.get<string>('HOST', '0.0.0.0');
+
+    // await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+    await app.listen(port, host);
 }
 bootstrap();

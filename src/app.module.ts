@@ -23,6 +23,7 @@ import { ProcessApprovalModule } from './process-approval/process-approval.modul
     imports: [
         ConfigModule.forRoot({
             isGlobal: true, // 使 ConfigModule 在整个应用程序中可用
+            envFilePath: `.env.${process.env.NODE_ENV || 'development'}`, // 自动加载对应环境的 .env 文件
         }),
         ServeStaticModule.forRoot({
             rootPath: join(__dirname, '..', 'uploads'), // 静态文件目录
@@ -57,7 +58,8 @@ import { ProcessApprovalModule } from './process-approval/process-approval.modul
         MenusModule,
         RoleModule,
         AuthModule, // 导入 InternalusersModule
-        OrgManagementModule, ProcessApprovalModule,
+        OrgManagementModule,
+        ProcessApprovalModule,
     ],
     controllers: [AppController],
     providers: [AppService],
