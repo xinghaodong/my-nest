@@ -124,7 +124,7 @@ CREATE TABLE `menu` (
   PRIMARY KEY (`id`),
   KEY `FK_23ac1b81a7bfb85b14e86bd23a5` (`parentId`),
   CONSTRAINT `FK_23ac1b81a7bfb85b14e86bd23a5` FOREIGN KEY (`parentId`) REFERENCES `menu` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=50 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -132,7 +132,7 @@ CREATE TABLE `menu` (
 --
 
 /*!40000 ALTER TABLE `menu` DISABLE KEYS */;
-INSERT INTO `menu` VALUES (21,'系统设置','',NULL,'','Setting','1','',2,'xtsz','1',''),(25,'角色管理','roleManagement',21,'systemSetting/roleManagement','Grid','1','',1,'roleManagement','1',''),(26,'员工管理','internalusers',21,'systemSetting/internalusers','User','0','',2,'internalusers','1',''),(33,'组织架构','management',21,'systemSetting/management','Check','1','',3,'management','1',''),(34,'资源管理','menuResource',21,'systemSetting/menuResource','Goods','0','',0,'resourceManagement','1',''),(44,'新增,编辑,删除','',26,'','','1','',1,'adduser','2','add:user'),(45,'新增,编辑,删除','',34,'','','0','',1,'menuadd','2','menu:add'),(46,'流程审批','',NULL,'','Folder','1',NULL,1,'vueFlow','1',''),(47,'流程图','vueFlow',46,'vueFlow/index','Clock','1',NULL,1,'flowChart','1',''),(48,'模板列表','flowList',46,'vueFlow/flowList','DishDot','1',NULL,1,'flowList','1','');
+INSERT INTO `menu` VALUES (21,'系统设置','',NULL,'','Setting','1','',2,'xtsz','1',''),(25,'角色管理','roleManagement',21,'systemSetting/roleManagement','Grid','1','',1,'roleManagement','1',''),(26,'员工管理','internalusers',21,'systemSetting/internalusers','User','0','',2,'internalusers','1',''),(33,'组织架构','management',21,'systemSetting/management','Check','1','',3,'management','1',''),(34,'资源管理','menuResource',21,'systemSetting/menuResource','Goods','0','',0,'resourceManagement','1',''),(44,'新增,编辑,删除','',26,'','','1','',1,'adduser','2','add:user'),(45,'新增,编辑,删除','',34,'','','0','',1,'menuadd','2','menu:add'),(46,'流程审批','',NULL,'','Folder','1',NULL,1,'vueFlow','1',''),(48,'模板列表','flowList',46,'vueFlow/flowList','DishDot','1',NULL,1,'flowList','1',''),(49,'流程图','vueFlow',48,'vueFlow/index','AlarmClock','1','',1,'flowChart','2','');
 /*!40000 ALTER TABLE `menu` ENABLE KEYS */;
 
 --
@@ -277,4 +277,4 @@ CREATE TABLE `role_users_internal_user` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-01-13 18:00:39
+-- Dump completed on 2025-02-08 17:16:06

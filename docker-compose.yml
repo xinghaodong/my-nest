@@ -1,0 +1,10 @@
+version: '3.7'
+services:
+    app:
+        image: your-docker-image
+        container_name: nest-app
+        ports:
+            - '3000:3000'
+        environment:
+            - NODE_ENV=production
+        restart: always
