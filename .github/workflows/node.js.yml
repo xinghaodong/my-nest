@@ -53,4 +53,4 @@ jobs:
             # 部署到服务器
             - name: Deploy to Alibaba Cloud Server
               run: |
-                  ssh -o StrictHostKeyChecking=no root@47.92.160.215 "cd /var/www/home1/ && git pull origin nestmain && docker-compose down && docker-compose up -d"
+                  ssh -o StrictHostKeyChecking=no root@47.92.160.215 "cd /var/www/home1/ && git config pull.rebase false && git pull origin nestmain && docker-compose down && docker-compose up -d"
