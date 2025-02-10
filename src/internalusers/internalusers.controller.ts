@@ -11,7 +11,7 @@ export class InternalusersController {
     // 查询用户
     // @UseGuards(JwtAuthGuard)
     @Get('find')
-    async findAll(@Query('page') page: number = 1, @Query('pageSize') pageSize: number = 10, @Query('search') search: string) {
+    async findAll(@Query('page') page: number, @Query('pageSize') pageSize: number, @Query('search') search: string) {
         return this.internalusersService.findAll(page, pageSize);
     }
     // 新增用户

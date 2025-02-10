@@ -85,16 +85,15 @@ export class InternalusersService {
         return null; // 验证失败返回 null
     }
 
-    async findAll(page: number = 1, pageSize: number = 10): Promise<{ data: InternalUser[]; total: number }> {
-        // 查出附件表中的 所有的附表   this.fileRepository
-        // const fileList = await this.fileRepository.find();
-        // console.log(page, pageSize, 'page, pageSize', fileList);
-        const skip = (page - 1) * pageSize;
-        const queryBuilder = this.usersRepository
-            .createQueryBuilder('user')
-            .leftJoinAndSelect('user.avatar', 'avatar') // 加载关联的 avatar 信息
-            .skip(skip)
-            .take(pageSize);
+    async findAll(page?: number, pageSize: number = 10): Promise<{ data: InternalUser[]; total: number }> {
+        console.log('findAll', page, pageSize);
+        const queryBuilder = this.usersRepository.createQueryBuilder('user').leftJoinAndSelect('user.avatar', 'avatar'); // 加载关联的 avatar 信息
+
+        if (page !== undefined && page !== null) {
+            const skip = (page - 1) * pageSize;
+            queryBuilder.skip(skip).take(pageSize);
+        }
+
         const [data, total] = await queryBuilder.getManyAndCount();
         // 使用 formatUser 函数处理每个用户的字段
         const formattedData = data.map(formatUser);
