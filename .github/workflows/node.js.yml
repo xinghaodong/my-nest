@@ -49,15 +49,7 @@ jobs:
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   source: |
-                      ./package.json
-                      ./package-lock.json
-                      ./tsconfig.build.json
-                      ./nest-cli.json
-                      ./tsconfig.json
-                      ./.env.development
-                      ./.env.production
                       ./src/
-                      # 其他需要上传的文件或目录
                   target: /var/www/home1/ # 目标服务器路径
 
             # 在服务器上安装依赖并启动应用
