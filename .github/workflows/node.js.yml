@@ -41,9 +41,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Upload files using rsync
+            - name: Upload files using rsync with no host key checking
               run: |
-                  rsync -avz ./package.json ./package-lock.json ./tsconfig.build.json ./.env.production ./src/ root@${{ secrets.SERVER_IP }}:/var/www/home1/
+                  rsync -avz -e "ssh -o StrictHostKeyChecking=no" ./package.json ./package-lock.json ./tsconfig.build.json ./.env.production ./src/ root@${{ secrets.SERVER_IP }}:/var/www/home1/
+
 
             # 在服务器上安装依赖并启动应用
             - name: Deploy to Alibaba Cloud Server (via SSH)
