@@ -39,6 +39,7 @@ jobs:
                   docker build -t my-nest-app:latest .  # 构建 Docker 镜像
                   docker save my-nest-app:latest -o my-nest-app.tar  # 将镜像保存为 .tar 文件
                   ls -lh my-nest-app.tar  # 检查是否成功生成文件
+                  pwd  # 打印当前工作目录
 
     deploy:
         runs-on: ubuntu-latest
@@ -54,6 +55,7 @@ jobs:
             - name: Upload Docker Image to Server
               run: |
                   # 确保文件存在并指定绝对路径上传
+                  pwd  # 打印当前工作目录
                   ls -lh my-nest-app.tar  # 确保文件存在
                   scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null my-nest-app.tar root@47.92.160.215:/var/www/home1/
 
