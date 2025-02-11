@@ -12,7 +12,7 @@ jobs:
 
         strategy:
             matrix:
-                node-version: [20.8.1]
+                node-version: [18.19.1]
 
         steps:
             - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
             # 上传 Docker 镜像到服务器
             - name: Upload Docker Image to Server
               run: |
-                  scp -i ${{ secrets.SSH_PRIVATE_KEY }} my-nest-app.tar root@47.92.160.215:/var/www/home1/
+                  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null my-nest-app.tar root@47.92.160.215:/var/www/home1/
 
             # 部署到阿里云服务器
             - name: Deploy to Alibaba Cloud Server (using docker-compose)
