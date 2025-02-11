@@ -1,68 +1,68 @@
 name: Node.js CI CD
 
 on:
-    push:
-        branches: ['nestmain']
-    pull_request:
-        branches: ['nestmain']
+  push:
+    branches: ['nestmain']
+  pull_request:
+    branches: ['nestmain']
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-        strategy:
-            matrix:
-                node-version: [18.19.1]
+    strategy:
+      matrix:
+        node-version: [20.8.1]
 
-        steps:
-            - uses: actions/checkout@v4
-            - name: Use Node.js ${{ matrix.node-version }}
-              uses: actions/setup-node@v4
-              with:
-                  node-version: ${{ matrix.node-version }}
-                  cache: 'npm'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
 
-            - name: Clean and Install Dependencies
-              run: |
-                  rm -rf node_modules package-lock.json
-                  npm cache clean --force
-                  npm install --legacy-peer-deps
+      - name: Clean and Install Dependencies
+        run: |
+          rm -rf node_modules package-lock.json
+          npm cache clean --force
+          npm install --legacy-peer-deps
 
-            - name: Build Project
-              run: npm run build --if-present
+      - name: Build Project
+        run: npm run build --if-present
 
-            - name: List dist files (for debugging)
-              run: ls -la ./dist/  # 确保 dist 目录存在并包含文件
+      - name: List dist files (for debugging)
+        run: ls -la ./dist/  # 确保 dist 目录存在并包含文件
 
-            - name: Run Tests
-              run: npm test
+      - name: Run Tests
+        run: npm test
 
-    deploy:
-        runs-on: ubuntu-latest
+  deploy:
+    runs-on: ubuntu-latest
 
-        needs: build
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v2
+    needs: build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-            # 先列出 dist 目录的内容来确保文件存在
-            - name: List dist files (for debugging)
-              run: ls -la ./dist/  # 列出 dist 目录中的文件，检查是否有内容
+      # 先列出 dist 目录的内容来确保文件存在
+      - name: List dist files (for debugging)
+        run: ls -la ./dist/  # 列出 dist 目录中的文件，检查是否有内容
 
-            # 使用绝对路径检查文件
-            - name: Debug SCP file paths
-              run: echo "Source Path: ./dist/**/*"  # 输出源路径
+      # 使用绝对路径检查文件
+      - name: Debug SCP file paths
+        run: echo "Source Path: ./dist/**/*"  # 输出源路径
 
-            # 配置 SCP 部署
-            - name: SSH Setup & Deploy
-              uses: appleboy/scp-action@v0.1.7
-              with:
-                  host: ${{ secrets.SERVER_IP }}
-                  username: root
-                  key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: ./dist/**/*  # 递归匹配所有文件
-                  target: /var/www/html/
+      # 配置 SCP 部署
+      - name: SSH Setup & Deploy
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: './dist/**/*'  # 递归匹配所有文件
+          target: /var/www/html/
 
-            # 如果需要的话，重启服务器上的应用
-            - name: Restart server (optional)
-              run: ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} "cd /var/www/html && docker-compose down && docker-compose up -d"
+      # 如果需要的话，重启服务器上的应用
+      - name: Restart server (optional)
+        run: ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} "cd /var/www/html && docker-compose down && docker-compose up -d"
