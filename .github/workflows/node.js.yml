@@ -41,15 +41,27 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-             # 上传源代码到服务器（排除 node_modules）
+              # 上传源代码到服务器（排除 node_modules）
             - name: Upload source code to server1
               uses: appleboy/scp-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: "./,**/*,!./node_modules/**"
+                  source: './,**/*,!./node_modules/**'
                   target: /var/www/home1/ # 目标服务器路径
+
+              # 在服务器上生成 .env.production 文件
+            - name: Generate .env.production on server
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  script: |
+                      cd /var/www/home1
+                      echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" > .env.production
+                      echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
 
             # 在服务器上安装依赖并启动应用
             - name: Deploy to Alibaba Cloud Server (via SSH)
