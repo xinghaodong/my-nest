@@ -48,9 +48,7 @@ jobs:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: |
-                      ./src/
-                      ./package.json
+                  source: "./package.json ./package-lock.json ./tsconfig.build.json ./.env.production ./src/"
                   target: /var/www/home1/ # 目标服务器路径
 
             # 在服务器上安装依赖并启动应用
