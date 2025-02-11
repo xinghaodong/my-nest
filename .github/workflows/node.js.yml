@@ -48,7 +48,7 @@ jobs:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: "./{package.json,package-lock.json,tsconfig.build.json,./src/**}"
+                  source: "./{package.json,package.json,package-lock.json,./.env.development,./.env.production,./nest-cli.json,./tsconfig.json,tsconfig.build.json,./src/**}"
                   target: /var/www/home1/ # 目标服务器路径
 
             # 在服务器上安装依赖并启动应用
