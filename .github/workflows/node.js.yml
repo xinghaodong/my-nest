@@ -37,8 +37,10 @@ jobs:
             - name: Build Docker Image
               run: |
                   docker build -t my-nest-app:latest .  # 构建 Docker 镜像
-                  docker save my-nest-app:latest -o /tmp/my-nest-app.tar  # 将镜像保存为 .tar 文件
-                  ls -lh /tmp/my-nest-app.tar  # 确保文件存在
+                  # 检查镜像是否构建成功
+                  docker images
+                  docker save my-nest-app:latest -o ./my-nest-app.tar  # 保存镜像到当前目录
+                  ls -lh  # 输出当前目录下的文件列表
                   pwd  # 打印当前工作目录
 
     deploy:
@@ -54,9 +56,9 @@ jobs:
             # 上传 Docker 镜像到服务器
             - name: Upload Docker Image to Server
               run: |
-                  # 确保文件存在并指定绝对路径上传
-                  ls -lh /tmp/my-nest-app.tar  # 确保文件存在
-                  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /tmp/my-nest-app.tar root@47.92.160.215:/var/www/home1/
+                  # 输出当前目录并确保文件存在
+                  ls -lh ./my-nest-app.tar  # 确保文件存在
+                  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ./my-nest-app.tar root@47.92.160.215:/var/www/home1/
 
             # 部署到阿里云服务器
             - name: Deploy to Alibaba Cloud Server (using docker-compose)
