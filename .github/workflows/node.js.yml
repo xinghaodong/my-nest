@@ -56,7 +56,6 @@ jobs:
                       ./tsconfig.json
                       ./.env.development
                       ./.env.production
-                      ./dist/
                       ./src/
                       # 其他需要上传的文件或目录
                   target: /var/www/home1/ # 目标服务器路径
