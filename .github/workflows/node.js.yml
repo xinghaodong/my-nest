@@ -34,19 +34,6 @@ jobs:
             - name: Run Tests
               run: npm test
 
-            - name: Build Docker Image
-              run: |
-                  docker build -t my-nest-app:latest .
-                  docker save my-nest-app:latest -o ./my-nest-app.tar
-                  ls -lh
-                  pwd
-
-            - name: Upload Artifacts
-              uses: actions/upload-artifact@v4
-              with:
-                  name: my-nest-app-docker-image
-                  path: ./my-nest-app.tar
-
     deploy:
         runs-on: ubuntu-latest
         needs: build
@@ -54,24 +41,28 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Download Artifacts
-              uses: actions/download-artifact@v4
-              with:
-                  name: my-nest-app-docker-image
-                  path: .
-
-            # 使用 SCP 上传 Docker 镜像文件到服务器
-            - name: Upload Docker Image to Server
+            # 上传源代码到服务器（排除 node_modules）
+            - name: Upload source code to server
               uses: appleboy/scp-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: ./my-nest-app.tar
-                  target: /var/www/home1/
+                  source: |
+                      ./package.json
+                      ./package-lock.json
+                      ./tsconfig.build.json
+                      ./nest-cli.json
+                      ./tsconfig.json
+                      ./.env.development
+                      ./.env.production
+                      ./dist/
+                      ./src/
+                      # 其他需要上传的文件或目录
+                  target: /var/www/home1/ # 目标服务器路径
 
-            # 通过 SSH 连接到服务器并执行 Docker 部署命令
-            - name: Deploy to Alibaba Cloud Server (using docker-compose)
+            # 在服务器上安装依赖并启动应用
+            - name: Deploy to Alibaba Cloud Server (via SSH)
               uses: appleboy/ssh-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
@@ -79,6 +70,6 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   script: |
                       cd /var/www/home1
-                      docker load -i my-nest-app.tar
-                      docker-compose down
-                      docker-compose up -d
+                      npm install --legacy-peer-deps
+                      npm run build
+                      pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod
