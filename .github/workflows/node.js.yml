@@ -32,7 +32,7 @@ jobs:
               run: npm run build --if-present
 
             - name: List dist files (for debugging)
-              run: ls -la ./dist/
+              run: ls -la ./dist/  # 确保 dist 目录存在并包含文件
 
             - name: Run Tests
               run: npm test
@@ -45,20 +45,24 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v2
 
-            # 添加一个调试步骤
-            - name: Debug SCP file paths
-              run: echo "Source Path: ./dist/*"
+            # 先列出 dist 目录的内容来确保文件存在
+            - name: List dist files (for debugging)
+              run: ls -la ./dist/  # 列出 dist 目录中的文件，检查是否有内容
 
-            # 设置 SSH 密钥（从 GitHub secrets 中读取）
+            # 使用绝对路径检查文件
+            - name: Debug SCP file paths
+              run: echo "Source Path: ./dist/**/*"  # 输出源路径
+
+            # 配置 SCP 部署
             - name: SSH Setup & Deploy
               uses: appleboy/scp-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: ./dist/*  # 确保 dist 目录下有文件
+                  source: ./dist/**/*  # 递归匹配所有文件
                   target: /var/www/html/
 
-            # 在这里可以添加进一步的部署命令，例如重启服务器上的服务
+            # 如果需要的话，重启服务器上的应用
             - name: Restart server (optional)
               run: ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} "cd /var/www/html && docker-compose down && docker-compose up -d"
