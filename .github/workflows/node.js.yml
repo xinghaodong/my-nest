@@ -41,7 +41,7 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-              # 上传源代码到服务器（排除 node_modules）
+            # 上传源代码到服务器（排除 node_modules）
             - name: Upload source code to server1
               uses: appleboy/scp-action@v0.1.7
               with:
@@ -51,7 +51,7 @@ jobs:
                   source: './,**/*,!./node_modules/**'
                   target: /var/www/home1/ # 目标服务器路径
 
-              # 在服务器上生成 .env.production 文件
+            # 在服务器上生成 .env.production 文件（只包含敏感信息）
             - name: Generate .env.production on server
               uses: appleboy/ssh-action@v0.1.7
               with:
@@ -60,7 +60,19 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   script: |
                       cd /var/www/home1
-                      echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" > .env.production
+                      # 写入明文配置
+                      echo "PORT=3000" > .env.production
+                      echo "DB_TYPE=mysql" >> .env.production
+                      echo "DB_HOST=127.0.0.1" >> .env.production
+                      echo "DB_PORT=3306" >> .env.production
+                      echo "DB_DATABASE=nestdatabase" >> .env.production
+                      echo "JWT_EXPIRES_IN=1h" >> .env.production
+                      echo "JWT_SECRET=secretKey" >> .env.production
+                      echo "REFRESH_SECRET=refSecretKey" >> .env.production
+                      echo "REFRESH_EXPIRES_IN=24h" >> .env.production
+                      echo "DEFAULT_PASSWORD=888888" >> .env.production
+                      # 写入敏感信息（通过 GitHub Secrets）
+                      echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
                       echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
 
             # 在服务器上安装依赖并启动应用
