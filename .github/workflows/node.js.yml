@@ -31,39 +31,30 @@ jobs:
             - name: Build Project
               run: npm run build --if-present
 
+            - name: List build files (for debugging)
+              run: ls -la ./dist/
+
             - name: Run Tests
               run: npm test
 
-            - name: Build Docker Image
-              run: |
-                  docker build -t my-nest-app:latest .  # 构建 Docker 镜像
-                  docker save my-nest-app:latest -o ./my-nest-app.tar  # 保存镜像到当前目录
-                  ls -lh  # 输出当前目录下的文件列表
-                  pwd  # 打印当前工作目录
-
     deploy:
         runs-on: ubuntu-latest
+
         needs: build
         steps:
-            # 使用 SCP 上传 Docker 镜像文件到服务器
-            - name: Upload Docker Image to Server
+            - name: Checkout code
+              uses: actions/checkout@v2
+
+            # 设置 SSH 密钥（从 GitHub secrets 中读取）
+            - name: SSH Setup & Deploy
               uses: appleboy/scp-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: ./my-nest-app.tar
-                  target: /var/www/home1/
+                  source: ./dist/* # 确保 dist 目录下有文件
+                  target: /var/www/html/
 
-            # 通过 SSH 连接到服务器并执行 Docker 部署命令
-            - name: Deploy to Alibaba Cloud Server (using docker-compose)
-              uses: appleboy/ssh-action@v0.1.7
-              with:
-                  host: ${{ secrets.SERVER_IP }}
-                  username: root
-                  key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  script: |
-                      cd /var/www/home1
-                      docker load -i my-nest-app.tar  # 加载 Docker 镜像
-                      docker-compose down  # 停止当前的容器
-                      docker-compose up -d  # 启动新容器
+            # 在这里可以添加进一步的部署命令，例如重启服务器上的服务
+            - name: Restart server (optional)
+              run: ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} "cd /var/www/html && docker-compose down && docker-compose up -d"
