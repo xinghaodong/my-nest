@@ -1,6 +1,3 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
 name: Node.js CI CD
 
 on:
@@ -16,7 +13,6 @@ jobs:
         strategy:
             matrix:
                 node-version: [20.8.1]
-                # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
         steps:
             - uses: actions/checkout@v4
@@ -37,20 +33,33 @@ jobs:
 
             - name: Run Tests
               run: npm test
+
+            - name: Build Docker Image
+              run: |
+                  docker build -t my-nest-app:latest .  # 构建 Docker 镜像
+                  docker save my-nest-app:latest -o my-nest-app.tar  # 将镜像保存为 .tar 文件
+
     deploy:
         runs-on: ubuntu-latest
-
         needs: build
         steps:
-            # 检出代码
-            - name: Checkout code
-              uses: actions/checkout@v2
             # 设置 SSH 密钥（从 GitHub secrets 中读取）
             - name: SSH Setup & Deploy
               uses: webfactory/ssh-agent@v0.5.3
               with:
                   ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-            # 部署到服务器
-            - name: Deploy to Alibaba Cloud Server
+
+            # 上传 Docker 镜像到服务器
+            - name: Upload Docker Image to Server
               run: |
-                  ssh -o StrictHostKeyChecking=no root@47.92.160.215 "cd /var/www/home1/ && git config pull.rebase false && git pull origin nestmain && docker-compose down && docker-compose up -d"
+                  scp -i ${{ secrets.SSH_PRIVATE_KEY }} my-nest-app.tar root@47.92.160.215:/var/www/home1/
+
+            # 部署到阿里云服务器
+            - name: Deploy to Alibaba Cloud Server (using docker-compose)
+              run: |
+                  ssh -o StrictHostKeyChecking=no root@47.92.160.215 << 'EOF'
+                  cd /var/www/home1
+                  docker load -i my-nest-app.tar
+                  docker-compose down
+                  docker-compose up -d 
+                  EOF
