@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { CreateProcessApprovalDto } from './dto/create-process-approval.dto';
 import { UpdateProcessApprovalDto } from './dto/update-process-approval.dto';
 import { ProcessTemplate } from './entities/process-approval.entity';
@@ -35,7 +35,10 @@ export class ProcessApprovalService {
         return `This action updates a #${id} processApproval`;
     }
 
-    remove(id: number) {
-        return `This action removes a #${id} processApproval`;
+    async delete(id: number) {
+        const result = await this.processTemplateRepository.delete(id);
+        if (result.affected === 0) {
+            throw new HttpException('未找到菜单', 404);
+        }
     }
 }
