@@ -72,7 +72,6 @@ export class InternalusersService {
     async validateUser(username: string, password: string): Promise<InternalUser | null> {
         const user = await this.findByUsername(username);
         // 如果没有找到用户或用户没有密码，则直接返回 null
-        console.log('user', user.password, password, user);
         if (!user || !user.password) {
             throw new HttpException('用户或密码不正确', HttpStatus.INTERNAL_SERVER_ERROR);
         }
@@ -217,7 +216,23 @@ export class InternalusersService {
             where: { id: userId },
             relations: ['roles'], // 加载当前用户的角色
         });
-
         return user.roles;
+    }
+    /**
+     *
+     */
+    async updateTheme(userId: number, theme: string): Promise<string> {
+        // 根据传来的userId 找到数据库的用户
+        const user = await this.usersRepository.findOne({
+            where: { id: userId },
+        });
+        // 修改数据库的 user.theme 信息
+        user.theme = theme;
+        console.log('user', user);
+        const ret = await this.usersRepository.save({
+            ...user,
+            theme,
+        });
+        return ret.theme;
     }
 }

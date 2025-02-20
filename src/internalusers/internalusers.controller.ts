@@ -34,4 +34,9 @@ export class InternalusersController {
     findOneAll(@Query('id', new ParseIntPipe()) id: number) {
         return this.internalusersService.findOneAll(id);
     }
+    // 修改用户主题
+    @Post('updateTheme')
+    updateTheme(@Body('id', new ParseIntPipe()) id: number, @Body('theme') theme: string) {
+        return this.internalusersService.updateTheme(id, theme);
+    }
 }

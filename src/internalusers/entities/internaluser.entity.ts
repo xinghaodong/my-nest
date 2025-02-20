@@ -28,6 +28,10 @@ export class InternalUser {
     @IsEmail() // 验证格式是否为有效 email
     email: string;
 
+    // 主题
+    @Column({ nullable: false, default: 'light' })
+    theme: string;
+
     // 绑定附件表的 id
     @ManyToOne(() => FileList, { nullable: true }) // 可为空
     @JoinColumn({ name: 'avatar_id' })
