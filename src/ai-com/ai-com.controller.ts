@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
 import { ai_testservice } from './ai-com.service';
 import { Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
@@ -23,5 +23,14 @@ export class AiController {
             res.status(500).write('data: {"error": "AI 流式请求失败"}\n\n');
             res.end();
         }
+    }
+
+    // 保存聊天记录
+    @Public()
+    @Post('save-record')
+    @Post('save-record')
+    async saveChatRecord(@Body('role') role: string, @Body('content') content: string, @Body('conversationId') conversationId: string): Promise<string> {
+        await this.aiService.saveChatRecord(role, content, conversationId);
+        return 'Chat record saved successfully!';
     }
 }
