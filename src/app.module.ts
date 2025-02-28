@@ -18,6 +18,7 @@ import { DateFormatMiddleware } from './common/middleware/formattingTime';
 import { AuthModule } from './auth/auth.module';
 import { OrgManagementModule } from './systemSetting/org-management/org-management.module';
 import { ProcessApprovalModule } from './process-approval/process-approval.module';
+import { AiModule } from './ai-com/ai-com.module';
 
 @Module({
     imports: [
@@ -60,6 +61,7 @@ import { ProcessApprovalModule } from './process-approval/process-approval.modul
         AuthModule, // 导入 InternalusersModule
         OrgManagementModule,
         ProcessApprovalModule,
+        AiModule,
     ],
     controllers: [AppController],
     providers: [AppService],

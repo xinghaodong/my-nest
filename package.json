@@ -36,6 +36,7 @@
     "class-validator": "^0.14.1",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.11.4",
+    "openai": "^4.85.4",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.0",

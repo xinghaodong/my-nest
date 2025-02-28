@@ -152,6 +152,7 @@ export class InternalusersService {
             await this.checkEmail(updateUserDto, id);
             // 删除 `id` 字段，确保不会覆盖主键
             delete updateUserDto.id;
+            delete updateUserDto.theme;
             if (!updateUserDto.avatars) {
                 // 如果未传递 `avatars`，保留原有值
                 delete updateUserDto.avatars;
@@ -163,6 +164,7 @@ export class InternalusersService {
             // 保存更新后的用户数据
             // logger.warn('updateUserDto', JSON.stringify(existingUser));
             const result = await this.usersRepository.save(existingUser);
+            logger.warn('updateUserDto', result);
             return result;
         } catch (error) {
             throw new HttpException(`${error.message}`, 500);

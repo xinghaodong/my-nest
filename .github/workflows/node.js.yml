@@ -74,6 +74,7 @@ jobs:
                       # 写入敏感信息（通过 GitHub Secrets）
                       echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
                       echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
+                      echo "ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}" >> .env.production
 
             # 在服务器上安装依赖并启动应用
             - name: Deploy to Alibaba Cloud Server (via SSH)
