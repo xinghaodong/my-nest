@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions } from 'typeorm';
 import { ChatRecord } from './entities/ai-com.entity';
 import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
+import { json } from 'stream/consumers';
 
 // import { PassThrough } from 'stream';
 
@@ -28,8 +29,9 @@ export class ai_testservice {
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callModelStream(prompt: string, res: any): Promise<void> {
+    async callModelStream(prompt: string, conversationId: string, res: any): Promise<void> {
         // 将用户输入添加到对话历史
+        console.log(`用户输入: ${prompt}`, conversationId);
         this.conversationHistory.push({ role: 'user', content: prompt });
         try {
             const completion = await this.client.chat.completions.create({
@@ -43,6 +45,7 @@ export class ai_testservice {
                     include_usage: true,
                 },
             });
+            // 调用消息保存接口
             let accumulatedResponse = ''; // 用于累积 AI 的完整响应
             // 每当流有数据返回时，拼接完整响应并发送全量数据
             for await (const chunk of completion) {
@@ -52,14 +55,17 @@ export class ai_testservice {
                     accumulatedResponse += content;
                     // 发送全量数据到前端
                     res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
-                    console.log(`流写入: ${accumulatedResponse}`); // 打印逐步流数据
                 }
             }
             // 将 AI 的完整响应添加到对话历史
-            this.conversationHistory.push({ role: 'assistant', content: accumulatedResponse });
+            // this.conversationHistory.push({ role: 'assistant', content: accumulatedResponse });
+            console.log(`完整响应: ${accumulatedResponse}`);
             // 发送结束信号
             res.write('event: end\ndata: {}\n\n');
             res.end(); // 结束响应
+            // 把完整的相应保存在数据库里
+            await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+            console.log('不走这里么？');
         } catch (error) {
             res.write(`data: ${JSON.stringify({ error: 'AI 调用失败' })}\n\n`);
             res.end();
@@ -74,5 +80,44 @@ export class ai_testservice {
         });
         await this.chatRecordRepository.save(newRecord);
         console.log(`历史记录保存: ${role} - ${content}`);
+    }
+    // 查询历史记录
+    async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
+        const options: FindManyOptions<ChatRecord> = {
+            where: { conversationId },
+            order: { createdAt: 'ASC' },
+        };
+        const records = await this.chatRecordRepository.find(options);
+        return records;
+    }
+    // 全部的回话记录
+    async getAllConversations(): Promise<any> {
+        const records = await this.chatRecordRepository.find();
+        // 创建一个空对象用于存储聚合后的结果
+        const aggregatedConversations = {};
+
+        // 遍历records数组
+        records.forEach(record => {
+            // 检查aggregatedConversations对象中是否已存在该conversationId对应的数组
+            if (!aggregatedConversations[record.conversationId]) {
+                // 如果不存在，则初始化一个空数组
+                aggregatedConversations[record.conversationId] = [];
+            }
+            // 将当前记录添加到对应conversationId的数组中
+            aggregatedConversations[record.conversationId].push({
+                id: record.id,
+                role: record.role,
+                content: record.content,
+                createdAt: record.createdAt,
+            });
+        });
+
+        // 如果你想要将结果转换成数组形式，可以这样做：
+        const resultArray = Object.keys(aggregatedConversations).map(conversationId => ({
+            conversationId: conversationId,
+            messages: aggregatedConversations[conversationId],
+        }));
+
+        return resultArray;
     }
 }
