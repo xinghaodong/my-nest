@@ -15,5 +15,5 @@ export class ChatRecord {
     conversationId: string; // 会话 ID，用于区分不同的对话
 
     @CreateDateColumn()
-    createdAt: Date; // 创建时间
+    created_at: Date; // 创建时间
 }

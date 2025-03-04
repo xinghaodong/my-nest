@@ -85,7 +85,7 @@ export class ai_testservice {
     async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
         const options: FindManyOptions<ChatRecord> = {
             where: { conversationId },
-            order: { createdAt: 'ASC' },
+            order: { created_at: 'ASC' },
         };
         const records = await this.chatRecordRepository.find(options);
         return records;
@@ -108,7 +108,7 @@ export class ai_testservice {
                 id: record.id,
                 role: record.role,
                 content: record.content,
-                createdAt: record.createdAt,
+                created_at: record.created_at,
             });
         });
 
