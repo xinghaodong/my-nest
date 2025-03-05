@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions } from 'typeorm';
+import { Repository, FindManyOptions, In } from 'typeorm';
 import { ChatRecord } from './entities/ai-com.entity';
+import { Message } from './entities/ai-com.entity';
 import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
 import { json } from 'stream/consumers';
 
@@ -16,6 +17,8 @@ export class ai_testservice {
     constructor(
         @InjectRepository(ChatRecord)
         private readonly chatRecordRepository: Repository<ChatRecord>,
+        @InjectRepository(Message)
+        private readonly messageRepository: Repository<Message>,
     ) {
         this.client = new OpenAI({
             apiKey: process.env.ALIYUN_API_KEY, // 确保环境变量已正确设置
@@ -33,6 +36,8 @@ export class ai_testservice {
         // 将用户输入添加到对话历史
         console.log(`用户输入: ${prompt}`, conversationId);
         this.conversationHistory.push({ role: 'user', content: prompt });
+        // 保存用户的消息记录
+        await this.saveChatRecord('user', prompt, conversationId);
         try {
             const completion = await this.client.chat.completions.create({
                 model: 'qwen-plus', // 或其他模型名称
@@ -71,53 +76,57 @@ export class ai_testservice {
             res.end();
         }
     }
+
+    // 保存会话id
+    async saveConversation(conversationId: string): Promise<void> {
+        const newConversation = this.chatRecordRepository.create({
+            conversation_random_id: conversationId,
+        });
+        await this.chatRecordRepository.save(newConversation);
+    }
     // 存储聊天记录
     async saveChatRecord(role: string, content: string, conversationId: string): Promise<void> {
-        const newRecord = this.chatRecordRepository.create({
+        const newRecord = this.messageRepository.create({
             role,
             content,
-            conversationId,
         });
-        await this.chatRecordRepository.save(newRecord);
+        await this.messageRepository.save(newRecord);
         console.log(`历史记录保存: ${role} - ${content}`);
     }
     // 查询历史记录
-    async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
-        const options: FindManyOptions<ChatRecord> = {
-            where: { conversationId },
-            order: { created_at: 'ASC' },
-        };
-        const records = await this.chatRecordRepository.find(options);
-        return records;
-    }
+    // async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
+    //     const options: FindManyOptions<ChatRecord> = {
+    //         where: { conversationId },
+    //         order: { created_at: 'ASC' },
+    //     };
+    //     const records = await this.chatRecordRepository.find(options);
+    //     return records;
+    // }
     // 全部的回话记录
     async getAllConversations(): Promise<any> {
-        const records = await this.chatRecordRepository.find();
-        // 创建一个空对象用于存储聚合后的结果
-        const aggregatedConversations = {};
-
-        // 遍历records数组
-        records.forEach(record => {
-            // 检查aggregatedConversations对象中是否已存在该conversationId对应的数组
-            if (!aggregatedConversations[record.conversationId]) {
-                // 如果不存在，则初始化一个空数组
-                aggregatedConversations[record.conversationId] = [];
-            }
-            // 将当前记录添加到对应conversationId的数组中
-            aggregatedConversations[record.conversationId].push({
-                id: record.id,
-                role: record.role,
-                content: record.content,
-                created_at: record.created_at,
-            });
-        });
-
-        // 如果你想要将结果转换成数组形式，可以这样做：
-        const resultArray = Object.keys(aggregatedConversations).map(conversationId => ({
-            conversationId: conversationId,
-            messages: aggregatedConversations[conversationId],
-        }));
-
-        return resultArray;
+        // const records = await this.chatRecordRepository.find();
+        // // 创建一个空对象用于存储聚合后的结果
+        // const aggregatedConversations = {};
+        // // 遍历records数组
+        // records.forEach(record => {
+        //     // 检查aggregatedConversations对象中是否已存在该conversationId对应的数组
+        //     if (!aggregatedConversations[record.conversationId]) {
+        //         // 如果不存在，则初始化一个空数组
+        //         aggregatedConversations[record.conversationId] = [];
+        //     }
+        //     // 将当前记录添加到对应conversationId的数组中
+        //     aggregatedConversations[record.conversationId].push({
+        //         id: record.id,
+        //         role: record.role,
+        //         content: record.content,
+        //         created_at: record.created_at,
+        //     });
+        // });
+        // // 如果你想要将结果转换成数组形式，可以这样做：
+        // const resultArray = Object.keys(aggregatedConversations).map(conversationId => ({
+        //     conversationId: conversationId,
+        //     messages: aggregatedConversations[conversationId],
+        // }));
+        // return resultArray;
     }
 }
