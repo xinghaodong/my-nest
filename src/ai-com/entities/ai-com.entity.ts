@@ -18,6 +18,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany, Ma
 //     created_at: Date; // 创建时间
 // }
 
+
 @Entity('chat_records')
 export class ChatRecord {
     @PrimaryGeneratedColumn()
