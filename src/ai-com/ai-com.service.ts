@@ -70,7 +70,6 @@ export class ai_testservice {
             res.end(); // 结束响应
             // 把完整的相应保存在数据库里
             await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
-            console.log('不走这里么？');
         } catch (error) {
             res.write(`data: ${JSON.stringify({ error: 'AI 调用失败' })}\n\n`);
             res.end();
