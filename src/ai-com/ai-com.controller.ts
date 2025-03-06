@@ -11,7 +11,6 @@ export class AiController {
     @Public()
     @Get('stream')
     async streamAI(@Query('prompt') prompt: string, @Query('conversationId') conversationId: string, @Res() res: Response) {
-        console.log('Received prompt:', prompt, conversationId);
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
