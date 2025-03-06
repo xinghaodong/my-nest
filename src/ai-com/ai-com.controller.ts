@@ -29,7 +29,7 @@ export class AiController {
     // 接口：创建新会话并保存第一条消息
     @Public()
     @Post('start-conversation')
-    async startConversation(): Promise<{ conversationId: string }> {
+    async startConversation(): Promise<{ conversationId: any }> {
         const conversationId = uuidv4(); // 生成唯一会话 ID
         // 保存会话 ID 和第一条消息
         await this.aiService.saveConversation(conversationId);
@@ -56,5 +56,12 @@ export class AiController {
     @Get('all-conversations')
     async getAllConversations(): Promise<any[]> {
         return await this.aiService.getAllConversations();
+    }
+
+    // 根据会话id查询聊天记录
+    @Public()
+    @Get('conversation-history') // 添加 @Get 装饰器
+    async getConversationHistory(@Query('conversationId') conversationId: number): Promise<any[]> {
+        return await this.aiService.getConversationHistory(conversationId);
     }
 }

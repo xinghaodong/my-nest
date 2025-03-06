@@ -1,23 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany, ManyToOne } from 'typeorm';
-
-// @Entity('chat_records') // 数据库表名
-// export class ChatRecord {
-//     @PrimaryGeneratedColumn()
-//     id: number; // 主键，自增
-
-//     @Column({ type: 'varchar', length: 50 })
-//     role: string; // 消息角色（如 user 或 assistant）
-
-//     @Column({ type: 'text' })
-//     content: string; // 消息内容
-
-//     @Column({ type: 'varchar', length: 255 })
-//     conversationId: string; // 会话 ID，用于区分不同的对话
-
-//     @CreateDateColumn()
-//     created_at: Date; // 创建时间
-// }
-
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 
 @Entity('chat_records')
 export class ChatRecord {
@@ -30,6 +11,14 @@ export class ChatRecord {
 
     @OneToMany(() => Message, message => message.conversation)
     messages: Message[];
+
+    // 创建时间 createTime
+    @CreateDateColumn()
+    createTime: Date;
+
+    // 更新时间 modifiedTime
+    @CreateDateColumn()
+    modifiedTime: Date;
 }
 
 @Entity('messages')
@@ -38,6 +27,7 @@ export class Message {
     message_id: number;
 
     @ManyToOne(() => ChatRecord, conversation => conversation.messages)
+    @JoinColumn({ name: 'conversation_id' }) // 关键：确保外键同步
     // 建立与 Conversation 的关系
     conversation: ChatRecord;
 
@@ -46,4 +36,8 @@ export class Message {
 
     @Column({ type: 'text' })
     content: string;
+
+    // 创建时间 createTime
+    @CreateDateColumn()
+    createTime: Date;
 }

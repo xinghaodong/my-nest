@@ -7,6 +7,7 @@ import { ChatRecord } from './entities/ai-com.entity';
 import { Message } from './entities/ai-com.entity';
 import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
 import { json } from 'stream/consumers';
+import { console } from 'inspector';
 
 // import { PassThrough } from 'stream';
 
@@ -85,12 +86,23 @@ export class ai_testservice {
     }
     // 存储聊天记录
     async saveChatRecord(role: string, content: string, conversationId: string): Promise<void> {
+        console.log(conversationId, 'conversationIdconversationIdconversationId');
+        let conversation_id = Number(conversationId);
+        const conversation = await this.chatRecordRepository.findOne({
+            where: { conversation_id: conversation_id },
+            relations: ['messages'], // 预加载关联的 messages
+        });
+
+        // 更新父表时间
+        conversation.modifiedTime = new Date();
+        await this.chatRecordRepository.save(conversation);
+        // 保存子表记录
         const newRecord = this.messageRepository.create({
             role,
             content,
+            conversation: conversation, // 关键：建立关系
         });
         await this.messageRepository.save(newRecord);
-        console.log(`历史记录保存: ${role} - ${content}`);
     }
     // 查询历史记录
     // async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
@@ -101,31 +113,17 @@ export class ai_testservice {
     //     const records = await this.chatRecordRepository.find(options);
     //     return records;
     // }
-    // 全部的回话记录
+    // 查询所有回话id
     async getAllConversations(): Promise<any> {
-        // const records = await this.chatRecordRepository.find();
-        // // 创建一个空对象用于存储聚合后的结果
-        // const aggregatedConversations = {};
-        // // 遍历records数组
-        // records.forEach(record => {
-        //     // 检查aggregatedConversations对象中是否已存在该conversationId对应的数组
-        //     if (!aggregatedConversations[record.conversationId]) {
-        //         // 如果不存在，则初始化一个空数组
-        //         aggregatedConversations[record.conversationId] = [];
-        //     }
-        //     // 将当前记录添加到对应conversationId的数组中
-        //     aggregatedConversations[record.conversationId].push({
-        //         id: record.id,
-        //         role: record.role,
-        //         content: record.content,
-        //         created_at: record.created_at,
-        //     });
-        // });
-        // // 如果你想要将结果转换成数组形式，可以这样做：
-        // const resultArray = Object.keys(aggregatedConversations).map(conversationId => ({
-        //     conversationId: conversationId,
-        //     messages: aggregatedConversations[conversationId],
-        // }));
-        // return resultArray;
+        const records = await this.chatRecordRepository.find();
+        return records;
+    }
+    // 根据回话id查询聊天记录
+    async getConversationHistory(conversationId: number): Promise<any> {
+        const messages = await this.messageRepository.find({
+            where: { conversation: { conversation_id: conversationId } }, // 通过关系查询
+            // relations: ['conversation'], // 如果你需要加载 ChatRecord 详情
+        });
+        return messages;
     }
 }
