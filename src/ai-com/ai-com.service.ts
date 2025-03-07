@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
-import { ChatCompletionMessageParam } from 'openai/resources';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In } from 'typeorm';
 import { ChatRecord } from './entities/ai-com.entity';
 import { Message } from './entities/ai-com.entity';
-import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
-import { json } from 'stream/consumers';
+// import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
+// import { json } from 'stream/consumers';
 
 // import { PassThrough } from 'stream';
 

@@ -2,7 +2,6 @@ import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
 import { ai_testservice } from './ai-com.service';
 import { Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
-import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
 
 @Controller('ai')
 export class AiController {
@@ -15,7 +14,6 @@ export class AiController {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('Transfer-Encoding', 'chunked');
-
         try {
             // 调用 AI 服务，获取流式数据
             await this.aiService.callModelStream(prompt, conversationId, res);
@@ -30,10 +28,7 @@ export class AiController {
     @Public()
     @Post('start-conversation')
     async startConversation(@Body('content') content: string): Promise<{ any }> {
-        // const conversationId = uuidv4(); // 生成唯一会话 ID
-        // 保存会话 ID 和第一条消息
         return await this.aiService.saveConversation(content);
-        // return { conversationId }; // 返回会话 ID 给前端
     }
 
     // 保存聊天记录
@@ -43,13 +38,6 @@ export class AiController {
         await this.aiService.saveChatRecord(role, content, conversationId);
         return '保存成功';
     }
-
-    // 查询历史聊天记录
-    // @Public()
-    // @Get('history')
-    // async getChatHistory(@Query('conversationId') conversationId: string): Promise<any[]> {
-    //     return await this.aiService.getChatHistory(conversationId);
-    // }
 
     // 查询全部的回话记录
     @Public()
