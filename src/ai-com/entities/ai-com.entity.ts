@@ -5,10 +5,6 @@ export class ChatRecord {
     @PrimaryGeneratedColumn()
     conversation_id: number;
 
-    // 会话随机id
-    @Column({ type: 'varchar', length: 255 })
-    conversation_random_id: string;
-
     @OneToMany(() => Message, message => message.conversation)
     messages: Message[];
 
@@ -19,6 +15,10 @@ export class ChatRecord {
     // 更新时间 modifiedTime
     @CreateDateColumn()
     modifiedTime: Date;
+
+    // 当前回话的title
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    content: string;
 }
 
 @Entity('messages')

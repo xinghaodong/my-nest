@@ -7,14 +7,12 @@ import { ChatRecord } from './entities/ai-com.entity';
 import { Message } from './entities/ai-com.entity';
 import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
 import { json } from 'stream/consumers';
-import { console } from 'inspector';
 
 // import { PassThrough } from 'stream';
 
 @Injectable()
 export class ai_testservice {
     private client: OpenAI;
-    private conversationHistory: ChatCompletionMessageParam[] = []; // 维护上下文对话历史
     constructor(
         @InjectRepository(ChatRecord)
         private readonly chatRecordRepository: Repository<ChatRecord>,
@@ -36,15 +34,24 @@ export class ai_testservice {
     async callModelStream(prompt: string, conversationId: string, res: any): Promise<void> {
         // 将用户输入添加到对话历史
         console.log(`用户输入: ${prompt}`, conversationId);
-        this.conversationHistory.push({ role: 'user', content: prompt });
         // 保存用户的消息记录
         await this.saveChatRecord('user', prompt, conversationId);
+        // 查询当前会话历史记录
+        let historyList = await this.getConversationHistory(conversationId, '1');
+        let conversationHistory = [];
+        conversationHistory = historyList.map(item => {
+            return {
+                role: item.role,
+                content: item.content,
+            };
+        });
+        // conversationHistory.push({ role: 'user', content: prompt });
         try {
             const completion = await this.client.chat.completions.create({
                 model: 'qwen-plus', // 或其他模型名称
                 messages: [
                     { role: 'system', content: 'You are a helpful assistant.' }, // 系统提示
-                    ...this.conversationHistory, // 添加完整对话历史
+                    ...conversationHistory, // 添加完整对话历史
                 ],
                 stream: true, // 开启流式返回
                 stream_options: {
@@ -78,21 +85,20 @@ export class ai_testservice {
     }
 
     // 保存会话id
-    async saveConversation(conversationId: string): Promise<void> {
+    async saveConversation(content: string): Promise<any> {
         const newConversation = this.chatRecordRepository.create({
-            conversation_random_id: conversationId,
+            content,
         });
-        await this.chatRecordRepository.save(newConversation);
+        let data = await this.chatRecordRepository.save(newConversation);
+        return data;
     }
     // 存储聊天记录
     async saveChatRecord(role: string, content: string, conversationId: string): Promise<void> {
-        console.log(conversationId, 'conversationIdconversationIdconversationId');
         let conversation_id = Number(conversationId);
         const conversation = await this.chatRecordRepository.findOne({
             where: { conversation_id: conversation_id },
             relations: ['messages'], // 预加载关联的 messages
         });
-
         // 更新父表时间
         conversation.modifiedTime = new Date();
         await this.chatRecordRepository.save(conversation);
@@ -104,25 +110,21 @@ export class ai_testservice {
         });
         await this.messageRepository.save(newRecord);
     }
-    // 查询历史记录
-    // async getChatHistory(conversationId: string): Promise<ChatRecord[]> {
-    //     const options: FindManyOptions<ChatRecord> = {
-    //         where: { conversationId },
-    //         order: { created_at: 'ASC' },
-    //     };
-    //     const records = await this.chatRecordRepository.find(options);
-    //     return records;
-    // }
     // 查询所有回话id
     async getAllConversations(): Promise<any> {
-        const records = await this.chatRecordRepository.find();
+        const records = await this.chatRecordRepository.find({
+            order: {
+                modifiedTime: 'DESC', // 按照modifiedTime字段倒序排序
+            },
+        });
         return records;
     }
     // 根据回话id查询聊天记录
-    async getConversationHistory(conversationId: number): Promise<any> {
+    async getConversationHistory(conversationId: string, type: string): Promise<any> {
+        let conversationIdnum = Number(conversationId);
         const messages = await this.messageRepository.find({
-            where: { conversation: { conversation_id: conversationId } }, // 通过关系查询
-            // relations: ['conversation'], // 如果你需要加载 ChatRecord 详情
+            where: { conversation: { conversation_id: conversationIdnum } }, // 通过关系查询
+            relations: type ? [] : ['conversation'], // 如果你需要加载 ChatRecord 详情
         });
         return messages;
     }
