@@ -89,7 +89,7 @@ jobs:
                       npm run build
                       pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod
             # 推送到Gitee
-            - name: Push to Gitee1
+            - name: Push to Gitee
               run: |
                   git config --global user.name "xing-hao-dong"
                   git config --global user.email "975115611@qq.com"
