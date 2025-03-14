@@ -4,14 +4,43 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In } from 'typeorm';
 import { ChatRecord } from './entities/ai-com.entity';
 import { Message } from './entities/ai-com.entity';
-// import { v4 as uuidv4 } from 'uuid'; // 引入 UUID 库
-// import { json } from 'stream/consumers';
-
-// import { PassThrough } from 'stream';
-
+// 导入时间查询工具
+import { format } from 'date-fns';
+import axios from 'axios';
 @Injectable()
 export class ai_testservice {
     private client: OpenAI;
+    private tools: any = [
+        // 工具1 获取当前时刻的时间
+        {
+            type: 'function',
+            function: {
+                name: 'getCurrentTime',
+                description: '当你想知道现在的时间时非常有用。',
+                // 因为获取当前时间无需输入参数，因此parameters为空
+                parameters: {},
+            },
+        },
+        // 工具2 获取指定城市的天气
+        {
+            type: 'function',
+            function: {
+                name: 'getCurrentWeather',
+                description: '当你想查询指定城市的天气时非常有用。',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        // 查询天气时需要提供位置，因此参数设置为location
+                        location: {
+                            type: 'string',
+                            description: '城市或县区，比如北京市、杭州市、余杭区等。',
+                        },
+                    },
+                    required: ['location'],
+                },
+            },
+        },
+    ];
     constructor(
         @InjectRepository(ChatRecord)
         private readonly chatRecordRepository: Repository<ChatRecord>,
@@ -23,6 +52,38 @@ export class ai_testservice {
             baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', // 根据实际情况调整
         });
     }
+    async getCurrentWeather(args) {
+        let city = args?.location || args;
+        // 如果 字符串里有 '市' 则删掉 聚合api 就是这样 加上市就查不出来🙂
+        if (city.includes('市')) city = city.replace('市', '');
+
+        console.log('city', city);
+        const apiKey = '76030359bfb467bb3fa5e9b48f252140';
+        const apiUrl = `http://apis.juhe.cn/simpleWeather/query?key=${apiKey}&city=${encodeURIComponent(city)}`;
+
+        try {
+            const response = await axios.get(apiUrl);
+            const weatherData = response.data;
+            if (weatherData.error_code === 0) {
+                const { temperature, info, direct, power, aqi } = weatherData.result.realtime;
+                return `${city}的当前天气是${info}，温度为${temperature}度,${direct}${power}空气质量为${aqi}`;
+            } else {
+                return `无法获取${city}的天气信息。`;
+            }
+        } catch (error) {
+            console.error('调用天气 API 失败:', error);
+            return '获取天气信息时出现错误。';
+        }
+    }
+    async getCurrentTime() {
+        // 获取当前日期和时间
+        const currentDatetime = new Date();
+        // 格式化当前日期和时间
+        const formattedTime = format(currentDatetime, 'yyyy-MM-dd HH:mm:ss');
+        // 返回格式化后的当前时间
+        return `当前时间：${formattedTime}。`;
+    }
+
     /**
      * 异步调用模型流式接口
      * 该方法将用户输入添加到对话历史中，然后调用AI模型进行响应，以流式方式返回AI的回答，并将其添加到对话历史中
@@ -30,59 +91,140 @@ export class ai_testservice {
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callModelStream(prompt: string, conversationId: string, res: any): Promise<void> {
-        // 将用户输入添加到对话历史
+    async callModelStream(prompt: string, conversationId: string, res: any) {
         console.log(`用户输入: ${prompt}`, conversationId);
-        // 保存用户的消息记录
         await this.saveChatRecord('user', prompt, conversationId);
-        // 查询当前会话历史记录
+
         let historyList = await this.getConversationHistory(conversationId, '1');
-        let conversationHistory = [];
-        conversationHistory = historyList.map(item => {
-            return {
-                role: item.role,
-                content: item.content,
-            };
+        let conversationHistory = historyList.map(item => {
+            console.log('历史记录项:', item);
+            return item;
         });
-        // conversationHistory.push({ role: 'user', content: prompt });
+        console.log('完整的 conversationHistory:', conversationHistory);
+
         try {
-            const completion = await this.client.chat.completions.create({
-                model: 'qwen-plus', // 或其他模型名称
-                messages: [
-                    { role: 'system', content: 'You are a helpful assistant.' }, // 系统提示
-                    ...conversationHistory, // 添加完整对话历史
-                ],
-                stream: true, // 开启流式返回
-                stream_options: {
-                    include_usage: true,
+            let messages = [
+                {
+                    role: 'system',
+                    content:
+                        '你是一个很有帮助的助手。如果用户提问关于天气的问题，请调用 `getCurrentWeather` 函数；如果用户提问关于时间的问题，请调用 `getCurrentTime` 函数。如果用户提到多个城市，请为每个城市分别调用 `getCurrentWeather` 函数生成独立的工具调用。支持同时查询多个城市的天气，并以友好的语气回答问题。',
                 },
-            });
-            // 调用消息保存接口
-            let accumulatedResponse = ''; // 用于累积 AI 的完整响应
-            // 每当流有数据返回时，拼接完整响应并发送全量数据
-            for await (const chunk of completion) {
-                if (chunk.choices?.[0]?.delta?.content) {
-                    const content = chunk.choices[0].delta.content;
-                    // 累积完整的 AI 响应
-                    accumulatedResponse += content;
-                    // 发送全量数据到前端
-                    res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                ...conversationHistory,
+            ];
+
+            let accumulatedResponse = '';
+
+            while (true) {
+                const completion = await this.client.chat.completions.create({
+                    model: 'qwen-plus',
+                    messages,
+                    tools: this.tools,
+                    stream: true,
+                });
+
+                let accumulatedToolCalls = [];
+                let hasToolCalls = false;
+
+                for await (const chunk of completion) {
+                    const delta = chunk.choices?.[0]?.delta;
+
+                    if (delta?.content) {
+                        accumulatedResponse += delta.content;
+                        res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    }
+
+                    if (delta?.tool_calls) {
+                        hasToolCalls = true;
+                        delta.tool_calls.forEach((toolCall, index) => {
+                            if (!accumulatedToolCalls[index]) {
+                                accumulatedToolCalls[index] = { id: `call_${Date.now()}_${index}`, function: { name: '', arguments: '' } };
+                            }
+                            if (toolCall.function?.name) {
+                                accumulatedToolCalls[index].function.name = toolCall.function.name;
+                            }
+                            if (toolCall.function?.arguments) {
+                                accumulatedToolCalls[index].function.arguments += toolCall.function.arguments;
+                            }
+                        });
+                        console.log('当前累积的工具调用:', accumulatedToolCalls);
+                    }
+
+                    if (chunk.choices?.[0]?.finish_reason === 'tool_calls' && accumulatedToolCalls.length > 0) {
+                        const toolCallMessage = {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: accumulatedToolCalls.map((call, index) => ({
+                                id: call.id,
+                                type: 'function',
+                                function: {
+                                    name: call.function.name,
+                                    arguments: call.function.arguments,
+                                },
+                            })),
+                        };
+
+                        messages.push(toolCallMessage);
+                        await this.saveChatRecord('assistant', toolCallMessage, conversationId);
+
+                        const toolResponses = [];
+                        console.log('工具数组', accumulatedToolCalls);
+                        for (const toolCall of accumulatedToolCalls) {
+                            let toolResponseContent = '';
+                            try {
+                                const functionArgs = JSON.parse(toolCall.function.arguments);
+                                console.log('解析后的工具参数:', functionArgs);
+
+                                if (toolCall.function.name === 'getCurrentWeather') {
+                                    toolResponseContent = await this.getCurrentWeather(functionArgs);
+                                } else if (toolCall.function.name === 'getCurrentTime') {
+                                    toolResponseContent = await this.getCurrentTime();
+                                }
+
+                                toolResponses.push({
+                                    role: 'tool',
+                                    content: toolResponseContent,
+                                    tool_call_id: toolCall.id,
+                                });
+                            } catch (error) {
+                                console.error('工具调用或参数解析失败:', error);
+                                toolResponseContent = '抱歉，工具调用失败，请稍后再试。';
+                                toolResponses.push({
+                                    role: 'tool',
+                                    content: toolResponseContent,
+                                    tool_call_id: toolCall.id,
+                                });
+                            }
+                        }
+
+                        toolResponses.forEach(response => {
+                            messages.push(response);
+                            // 可选：保存工具结果
+                            // await this.saveChatRecord('tool', response.content, conversationId);
+                        });
+                    }
                 }
+
+                // 如果没有工具调用，退出循环
+                if (!hasToolCalls) {
+                    if (accumulatedResponse) {
+                        await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+                    }
+                    break;
+                }
+                console.log('进入下一次循环');
+                // 重置工具调用状态，准备下一次循环
+                accumulatedToolCalls = [];
+                hasToolCalls = false;
             }
-            // 将 AI 的完整响应添加到对话历史
-            // this.conversationHistory.push({ role: 'assistant', content: accumulatedResponse });
-            console.log(`完整响应: ${accumulatedResponse}`);
-            // 发送结束信号
+
             res.write('event: end\ndata: {}\n\n');
-            res.end(); // 结束响应
-            // 把完整的相应保存在数据库里
-            await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+            res.end();
         } catch (error) {
+            console.error('调用模型失败:', error);
             res.write(`data: ${JSON.stringify({ error: 'AI 调用失败' })}\n\n`);
             res.end();
         }
     }
-
     // 保存会话id
     async saveConversation(content: string): Promise<any> {
         const newConversation = this.chatRecordRepository.create({
@@ -91,21 +233,28 @@ export class ai_testservice {
         let data = await this.chatRecordRepository.save(newConversation);
         return data;
     }
-    // 存储聊天记录
-    async saveChatRecord(role: string, content: string, conversationId: string): Promise<void> {
+    async saveChatRecord(role: string, content: any, conversationId: string): Promise<void> {
         let conversation_id = Number(conversationId);
         const conversation = await this.chatRecordRepository.findOne({
             where: { conversation_id: conversation_id },
-            relations: ['messages'], // 预加载关联的 messages
+            relations: ['messages'],
         });
-        // 更新父表时间
+
         conversation.modifiedTime = new Date();
         await this.chatRecordRepository.save(conversation);
-        // 保存子表记录
+
+        let contentToSave = content;
+        if (role === 'assistant' && typeof content === 'object' && content.tool_calls) {
+            // 对于 tool_calls 消息，保存完整结构，但标记为不直接展示
+            contentToSave = JSON.stringify(content);
+        } else if (typeof content !== 'string') {
+            contentToSave = String(content); // 普通文本转为字符串
+        }
+
         const newRecord = this.messageRepository.create({
             role,
-            content,
-            conversation: conversation, // 关键：建立关系
+            content: contentToSave,
+            conversation, // 关联会话
         });
         await this.messageRepository.save(newRecord);
     }
@@ -125,6 +274,33 @@ export class ai_testservice {
             where: { conversation: { conversation_id: conversationIdnum } }, // 通过关系查询
             relations: type ? [] : ['conversation'], // 如果你需要加载 ChatRecord 详情
         });
-        return messages;
+        // 如果没有传入type 是前端的这里需要过滤数据item.role == 'tool' 以及 item.role === 'assistant' && typeof content === 'string' && content.startsWith('{')的数据
+        let arr = messages.filter(item => item.role !== 'tool' && !(item.role === 'assistant' && typeof item.content === 'string' && item.content.startsWith('{')));
+        return arr;
     }
+    // async getConversationHistory(conversationId: string, type: string): Promise<any> {
+    //     let conversationIdnum = Number(conversationId);
+    //     const messages = await this.messageRepository.find({
+    //         where: { conversation: { conversation_id: conversationIdnum } },
+    //         relations: type ? [] : ['conversation'],
+    //     });
+
+    //     return messages.map(item => {
+    //         let content = item.content;
+    //         if (item.role === 'assistant' && typeof content === 'string' && content.startsWith('{')) {
+    //             try {
+    //                 const parsed = JSON.parse(content);
+    //                 if (parsed.tool_calls) {
+    //                     // 对于 tool_calls 消息，返回给模型使用，但前端不展示
+    //                     return { role: item.role, content: null, tool_calls: parsed.tool_calls };
+    //                 }
+    //                 return { role: item.role, content: parsed.content || content };
+    //             } catch (e) {
+    //                 console.warn(`解析历史记录失败: ${content}`, e);
+    //                 return { role: item.role, content };
+    //             }
+    //         }
+    //         return { role: item.role, content };
+    //     });
+    // }
 }

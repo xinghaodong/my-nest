@@ -52,4 +52,11 @@ export class AiController {
     async getConversationHistory(@Query('conversationId') conversationId: string, @Query('type') type?: string): Promise<any[]> {
         return await this.aiService.getConversationHistory(conversationId, type);
     }
+
+    // 天气查询
+    @Public()
+    @Get('weather')
+    async getWeather(@Query('city') city: string): Promise<any> {
+        return await this.aiService.getCurrentWeather(city);
+    }
 }
