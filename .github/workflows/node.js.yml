@@ -89,20 +89,20 @@ jobs:
                       npm run build
                       pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod
             # 推送到Gitee
-            - name: Push to Gitee
-              run: |
-                  git config --global user.name "xing-hao-dong"
-                  git config --global user.email "975115611@qq.com"
+            # - name: Push to Gitee
+            #   run: |
+            #       git config --global user.name "xing-hao-dong"
+            #       git config --global user.email "975115611@qq.com"
 
-                  git remote add gitee https://gitee.com/xing-hao-dong/nest-typeorm.git
-                  git fetch gitee
+            #       git remote add gitee https://gitee.com/xing-hao-dong/nest-typeorm.git
+            #       git fetch gitee
                   
-                  # 强制拉取并自动接受本地版本的更改
-                  git merge -X ours gitee/master || echo "No merge necessary"
+            #       # 强制拉取并自动接受本地版本的更改
+            #       git merge -X ours gitee/master || echo "No merge necessary"
                   
-                  git add -A
-                  git commit -m "CI: Auto-commit changes before pushing to Gitee" || echo "No changes to commit"
+            #       git add -A
+            #       git commit -m "CI: Auto-commit changes before pushing to Gitee" || echo "No changes to commit"
 
-                  git push https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/xing-hao-dong/nest-typeorm.git HEAD:master -f            
+            #       git push https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/xing-hao-dong/nest-typeorm.git HEAD:master -f            
 
                       
