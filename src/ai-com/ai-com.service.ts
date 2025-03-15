@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import axios from 'axios';
 @Injectable()
 export class ai_testservice {
+    private MODEL_PROVIDER = process.env.MODEL_PROVIDER || 'aliyun'; // aliyun 或 ollama
     private client: OpenAI;
     private tools: any = [
         // 工具1 获取当前时刻的时间
@@ -47,17 +48,17 @@ export class ai_testservice {
         @InjectRepository(Message)
         private readonly messageRepository: Repository<Message>,
     ) {
-        this.client = new OpenAI({
-            apiKey: process.env.ALIYUN_API_KEY, // 确保环境变量已正确设置
-            baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', // 根据实际情况调整
-        });
+        if (this.MODEL_PROVIDER === 'aliyun') {
+            this.client = new OpenAI({
+                apiKey: process.env.ALIYUN_API_KEY,
+                baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+            });
+        }
     }
     async getCurrentWeather(args) {
         let city = args?.location || args;
         // 如果 字符串里有 '市' 则删掉 聚合api 就是这样 加上市就查不出来🙂
         if (city.includes('市')) city = city.replace('市', '');
-
-        console.log('city', city);
         const apiKey = '76030359bfb467bb3fa5e9b48f252140';
         const apiUrl = `http://apis.juhe.cn/simpleWeather/query?key=${apiKey}&city=${encodeURIComponent(city)}`;
 
@@ -84,24 +85,101 @@ export class ai_testservice {
         return `当前时间：${formattedTime}。`;
     }
 
+    /** 判断是本地模型还是服务商模型 统一处理流式请求 */
+    async callModelStream(prompt: string, conversationId: string, res: any) {
+
+        await this.saveChatRecord('user', prompt, conversationId);
+
+        if (this.MODEL_PROVIDER === 'ollama') {
+            return this.callOllamaStream(prompt, conversationId, res);
+        } else {
+            return this.callAliyunStream(prompt, conversationId, res);
+        }
+    }
     /**
+     * 本地模型调用
+     */
+    /** 本地 Ollama (DeepSeek-R1) 处理流式请求（带上下文记忆） */
+    async callOllamaStream(prompt: string, conversationId: string, res: any) {
+        console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求',prompt);
+
+        try {
+            // 1. 获取对话历史记录
+            const historyList = await this.getConversationHistory(conversationId, '1');
+            const conversationHistory = historyList.map(item => ({
+                role: item.role === 'user' ? 'user' : 'assistant',
+                content: item.content,
+            }));
+            let messages = [
+                {
+                    role: 'system',
+                    content:
+                        '你是一个很有帮助的助手,以幽默的方式回答用户。',
+                },
+                ...conversationHistory,
+            ];
+
+            // 3. 调用 Ollama 的 chat 接口（注意 URL 改为 /api/chat）
+            const response = await axios.post(
+                'http://localhost:11434/api/chat',
+                {
+                    model: 'deepseek-r1:14b',
+                    messages, // 使用完整的消息数组
+                    stream: true,
+                },
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                    responseType: 'stream',
+                },
+            );
+
+            let accumulatedResponse = '';
+            response.data.on('data', (chunk: Buffer) => {
+                try {
+                    const jsonString = chunk.toString();
+                    const jsonData = JSON.parse(jsonString);
+
+                    if (jsonData.message?.content) {
+                        // 4. 累加流式响应内容
+                        accumulatedResponse += jsonData.message.content;
+                        res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    }
+                } catch (err) {
+                    console.error('解析流数据错误:', err);
+                }
+            });
+
+            response.data.on('end', async () => {
+                console.log('流式响应结束');
+                res.write('event: end\ndata: {}\n\n');
+                res.end();
+
+                // 5. 保存完整的响应到数据库
+                if (accumulatedResponse) {
+                    await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+                }
+
+            });
+        } catch (error) {
+            console.error('本地模型请求失败:', error);
+            res.write(`data: ${JSON.stringify({ error: '本地 AI 调用失败' })}\n\n`);
+            res.end();
+        }
+    }
+
+    /**
+     * 阿里云模型调用
      * 异步调用模型流式接口
      * 该方法将用户输入添加到对话历史中，然后调用AI模型进行响应，以流式方式返回AI的回答，并将其添加到对话历史中
      * @param prompt 用户输入的提示信息
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callModelStream(prompt: string, conversationId: string, res: any) {
-        console.log(`用户输入: ${prompt}`, conversationId);
-        await this.saveChatRecord('user', prompt, conversationId);
-
+    async callAliyunStream(prompt: string, conversationId: string, res: any) {
         let historyList = await this.getConversationHistory(conversationId, '1');
         let conversationHistory = historyList.map(item => {
-            console.log('历史记录项:', item);
             return item;
         });
-        console.log('完整的 conversationHistory:', conversationHistory);
-
         try {
             let messages = [
                 {
@@ -167,12 +245,10 @@ export class ai_testservice {
                         await this.saveChatRecord('assistant', toolCallMessage, conversationId);
 
                         const toolResponses = [];
-                        console.log('工具数组', accumulatedToolCalls);
                         for (const toolCall of accumulatedToolCalls) {
                             let toolResponseContent = '';
                             try {
                                 const functionArgs = JSON.parse(toolCall.function.arguments);
-                                console.log('解析后的工具参数:', functionArgs);
 
                                 if (toolCall.function.name === 'getCurrentWeather') {
                                     toolResponseContent = await this.getCurrentWeather(functionArgs);
@@ -211,7 +287,6 @@ export class ai_testservice {
                     }
                     break;
                 }
-                console.log('进入下一次循环');
                 // 重置工具调用状态，准备下一次循环
                 accumulatedToolCalls = [];
                 hasToolCalls = false;
@@ -278,29 +353,4 @@ export class ai_testservice {
         let arr = messages.filter(item => item.role !== 'tool' && !(item.role === 'assistant' && typeof item.content === 'string' && item.content.startsWith('{')));
         return arr;
     }
-    // async getConversationHistory(conversationId: string, type: string): Promise<any> {
-    //     let conversationIdnum = Number(conversationId);
-    //     const messages = await this.messageRepository.find({
-    //         where: { conversation: { conversation_id: conversationIdnum } },
-    //         relations: type ? [] : ['conversation'],
-    //     });
-
-    //     return messages.map(item => {
-    //         let content = item.content;
-    //         if (item.role === 'assistant' && typeof content === 'string' && content.startsWith('{')) {
-    //             try {
-    //                 const parsed = JSON.parse(content);
-    //                 if (parsed.tool_calls) {
-    //                     // 对于 tool_calls 消息，返回给模型使用，但前端不展示
-    //                     return { role: item.role, content: null, tool_calls: parsed.tool_calls };
-    //                 }
-    //                 return { role: item.role, content: parsed.content || content };
-    //             } catch (e) {
-    //                 console.warn(`解析历史记录失败: ${content}`, e);
-    //                 return { role: item.role, content };
-    //             }
-    //         }
-    //         return { role: item.role, content };
-    //     });
-    // }
 }
