@@ -18,7 +18,6 @@ export class AiController {
             // 调用 AI 服务，获取流式数据
             await this.aiService.callModelStream(prompt, conversationId, res);
         } catch (error) {
-            console.error('Error during AI streaming:', error);
             res.status(500).write('data: {"error": "AI 流式请求失败"}\n\n');
             res.end();
         }
