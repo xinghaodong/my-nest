@@ -58,4 +58,11 @@ export class AiController {
     async getWeather(@Query('city') city: string): Promise<any> {
         return await this.aiService.getCurrentWeather(city);
     }
+
+    // 查询 本地 ollama 模型
+    @Public()
+    @Get('ollama-models')
+    async getOllamaModels(): Promise<any> {
+        return await this.aiService.getOllamaModels();
+    }
 }

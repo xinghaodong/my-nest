@@ -7,6 +7,10 @@ import { Message } from './entities/ai-com.entity';
 // 导入时间查询工具
 import { format } from 'date-fns';
 import axios from 'axios';
+import ollama from 'ollama';
+/**
+ * 本地大模型服务 可以用 node 安装 ollama 也可以直接使用 curl 直接调用本机的ollama服务
+ */
 @Injectable()
 export class ai_testservice {
     private MODEL_PROVIDER = process.env.MODEL_PROVIDER || 'aliyun'; // aliyun 或 ollama
@@ -350,5 +354,11 @@ export class ai_testservice {
         // 如果没有传入type 是前端的这里需要过滤数据item.role == 'tool' 以及 item.role === 'assistant' && typeof content === 'string' && content.startsWith('{')的数据
         let arr = messages.filter(item => item.role !== 'tool' && !(item.role === 'assistant' && typeof item.content === 'string' && item.content.startsWith('{')));
         return arr;
+    }
+    // 查询本地ollama模型
+    async getOllamaModels(): Promise<any> {
+        return await ollama.list();
+        //   let list = await axios.get('http://127.0.0.1:11434/api/tags');
+        //   return list.data;
     }
 }
