@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import axios from 'axios';
 import ollama from 'ollama';
 /**
- * 本地大模型服务 可以用 node 安装 ollama 也可以直接使用 curl 直接调用本机的ollama服务
+ * 本地大模型服务 可以用 node 安装 ollama 也可以自定义客户端访问 直接调用本机的ollama服务
  */
 @Injectable()
 export class ai_testservice {
@@ -114,7 +114,7 @@ export class ai_testservice {
             let messages = [
                 {
                     role: 'system',
-                    content: '你是一个很有帮助的助手',
+                    content: '你是一个很有帮助的助手，请使用中文回答问题。',
                 },
                 ...conversationHistory,
             ];
@@ -357,7 +357,8 @@ export class ai_testservice {
     }
     // 查询本地ollama模型
     async getOllamaModels(): Promise<any> {
-        return await ollama.list();
+        let models = await ollama.list();
+        return models.models;
         //   let list = await axios.get('http://127.0.0.1:11434/api/tags');
         //   return list.data;
     }
