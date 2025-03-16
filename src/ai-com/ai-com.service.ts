@@ -48,12 +48,10 @@ export class ai_testservice {
         @InjectRepository(Message)
         private readonly messageRepository: Repository<Message>,
     ) {
-        if (this.MODEL_PROVIDER === 'aliyun') {
-            this.client = new OpenAI({
-                apiKey: process.env.ALIYUN_API_KEY,
-                baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-            });
-        }
+        this.client = new OpenAI({
+            apiKey: process.env.ALIYUN_API_KEY,
+            baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        });
     }
     async getCurrentWeather(args) {
         let city = args?.location || args;
@@ -86,22 +84,21 @@ export class ai_testservice {
     }
 
     /** 判断是本地模型还是服务商模型 统一处理流式请求 */
-    async callModelStream(prompt: string, conversationId: string, res: any) {
-
+    async callModelStream(prompt: string, conversationId: string, model: string, res: any) {
         await this.saveChatRecord('user', prompt, conversationId);
-
-        if (this.MODEL_PROVIDER === 'ollama') {
-            return this.callOllamaStream(prompt, conversationId, res);
+        console.log('model', model);
+        if (model === 'deepseek-r1:14b') {
+            return this.callOllamaStream(prompt, conversationId, model, res);
         } else {
-            return this.callAliyunStream(prompt, conversationId, res);
+            return this.callAliyunStream(prompt, conversationId, model, res);
         }
     }
     /**
      * 本地模型调用
      */
     /** 本地 Ollama (DeepSeek-R1) 处理流式请求（带上下文记忆） */
-    async callOllamaStream(prompt: string, conversationId: string, res: any) {
-        console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求',prompt);
+    async callOllamaStream(prompt: string, conversationId: string, model: string, res: any) {
+        console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求', prompt);
 
         try {
             // 1. 获取对话历史记录
@@ -113,8 +110,7 @@ export class ai_testservice {
             let messages = [
                 {
                     role: 'system',
-                    content:
-                        '你是一个很有帮助的助手,以幽默的方式回答用户。',
+                    content: '你是一个很有帮助的助手',
                 },
                 ...conversationHistory,
             ];
@@ -123,7 +119,8 @@ export class ai_testservice {
             const response = await axios.post(
                 'http://localhost:11434/api/chat',
                 {
-                    model: 'deepseek-r1:14b',
+                    // model deepseek-r1:14b
+                    model: model,
                     messages, // 使用完整的消息数组
                     stream: true,
                 },
@@ -158,7 +155,6 @@ export class ai_testservice {
                 if (accumulatedResponse) {
                     await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
                 }
-
             });
         } catch (error) {
             console.error('本地模型请求失败:', error);
@@ -175,7 +171,8 @@ export class ai_testservice {
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callAliyunStream(prompt: string, conversationId: string, res: any) {
+    async callAliyunStream(prompt: string, conversationId: string, model: string, res: any) {
+        console.log('使用阿里云模型处理带上下文的请求', prompt);
         let historyList = await this.getConversationHistory(conversationId, '1');
         let conversationHistory = historyList.map(item => {
             return item;
@@ -194,7 +191,8 @@ export class ai_testservice {
 
             while (true) {
                 const completion = await this.client.chat.completions.create({
-                    model: 'qwen-plus',
+                    // model: 'qwen-plus',
+                    model: model,
                     messages,
                     tools: this.tools,
                     stream: true,
