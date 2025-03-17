@@ -13,7 +13,6 @@ import ollama from 'ollama';
  */
 @Injectable()
 export class ai_testservice {
-    private MODEL_PROVIDER = process.env.MODEL_PROVIDER || 'aliyun'; // aliyun 或 ollama
     private client: OpenAI;
     private tools: any = [
         // 工具1 获取当前时刻的时间
@@ -87,21 +86,80 @@ export class ai_testservice {
         return `当前时间：${formattedTime}。`;
     }
 
+    shouldEnableWebSearch(prompt: string, conversationHistory: any[]): boolean {
+        // 规则 1: 关键词匹配
+        const realTimeKeywords = ['今天', '最新', '2023', '新闻', '最近', '现在', '当前'];
+        const hasRealTimeKeyword = realTimeKeywords.some(keyword => prompt.includes(keyword));
+
+        // 规则 2: 问题类型
+        const factualKeywords = ['哪里', '什么时候', '多少', '为什么', '如何'];
+        const isFactualQuestion = factualKeywords.some(keyword => prompt.includes(keyword));
+
+        // 规则 3: 上下文分析
+        const lastMessage = conversationHistory[conversationHistory.length - 1];
+        const isFollowUpQuestion = lastMessage && lastMessage.content.includes('最新');
+
+        // 规则 4: 历史记录
+        const hasWebSearchHistory = conversationHistory.some(item => item.role === 'assistant' && item.content.includes('[网络搜索]'));
+
+        // 规则 5: 本地知识库（简单示例）
+        // const localKnowledgeQuestions = ['你好', '谢谢'];
+        // const isLocalKnowledgeQuestion = localKnowledgeQuestions.includes(prompt.trim());
+
+        // 综合判断
+        return hasRealTimeKeyword || isFactualQuestion || isFollowUpQuestion || hasWebSearchHistory;
+    }
+
+    // 自定义搜索方法
+    async performGoogleSearch(query: string): Promise<string> {
+        const apiKey = '5bb50bfb03899ead0850b9a197851082e1ddf557';
+        const url = 'https://google.serper.dev/search';
+
+        try {
+            const response = await axios.post(
+                url,
+                {
+                    q: query,
+                    gl: 'cn', // 国家：中国
+                    hl: 'zh-cn', // 语言：简体中文
+                    num: 5, // 结果数量
+                },
+                {
+                    headers: {
+                        'X-API-KEY': apiKey,
+                        'Content-Type': 'application/json',
+                    },
+                },
+            );
+            const results = response.data.organic;
+            // console.log('results', results);
+            // 返回一个数组，每个元素包含标题、描述和链接
+            return results.slice(0, 3).map((item: any) => ({
+                title: item.title,
+                snippet: item.snippet,
+                link: item.link,
+            }));
+        } catch (error) {
+            console.error('Serper 搜索失败:', error);
+            throw new Error('搜索服务暂时不可用，请稍后重试');
+        }
+    }
+
     /** 判断是本地模型还是服务商模型 统一处理流式请求 */
-    async callModelStream(prompt: string, conversationId: string, model: string, res: any) {
+    async callModelStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
         await this.saveChatRecord('user', prompt, conversationId);
         console.log('model', model);
-        if (model === 'deepseek-r1:14b') {
-            return this.callOllamaStream(prompt, conversationId, model, res);
+        if (model === 'qwen-plus') {
+            return this.callAliyunStream(prompt, conversationId, model, useInternetSearch, res);
         } else {
-            return this.callAliyunStream(prompt, conversationId, model, res);
+            return this.callOllamaStream(prompt, conversationId, model, useInternetSearch, res);
         }
     }
     /**
      * 本地模型调用
      */
-    /** 本地 Ollama (DeepSeek-R1) 处理流式请求（带上下文记忆） */
-    async callOllamaStream(prompt: string, conversationId: string, model: string, res: any) {
+    /** 本地 Ollama (例如:DeepSeek-R1等开源模型) 处理流式请求（带上下文记忆、联网搜索功能） */
+    async callOllamaStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
         console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求', prompt);
 
         try {
@@ -111,55 +169,62 @@ export class ai_testservice {
                 role: item.role === 'user' ? 'user' : 'assistant',
                 content: item.content,
             }));
-            let messages = [
+
+            // 2. 判断是否需要联网搜索
+            const shouldSearch = this.shouldEnableWebSearch(prompt, conversationHistory);
+            let searchContext = '';
+
+            if (shouldSearch && useInternetSearch === '1') {
+                res.write(`data: ${JSON.stringify({ status: 'searching', message: '正在进行联网搜索...' })}\n\n`);
+                try {
+                    const searchResultsArray = await this.performGoogleSearch(prompt); // 假设返回多个搜索结果的数组
+                    console.log('搜索结果:', typeof searchResultsArray);
+                    if (Array.isArray(searchResultsArray) && searchResultsArray.length > 0) {
+                        searchContext = '\n\n[网络搜索上下文]（更新时间：' + new Date().toLocaleString() + '）\n';
+                        console.log('searchResultsArray:', searchResultsArray);
+
+                        searchResultsArray.forEach((result, index) => {
+                            searchContext += `【结果 ${index + 1}】\n标题：${result.title}\n描述：${result.snippet}\n来源：${result.link}\n\n`;
+                        });
+                        console.log('searchContext:', searchContext);
+                    }
+                    res.write(`data: ${JSON.stringify({ status: 'search_complete', message: '联网搜索完成' })}\n\n`);
+                } catch (searchError) {
+                    console.error('联网搜索失败:', searchError);
+                    searchContext = '\n\n[注意：当前网络搜索不可用，将仅使用本地知识库回答]';
+                    res.write(`data: ${JSON.stringify({ status: 'search_failed', message: '联网搜索失败，将仅使用本地知识库回答' })}\n\n`);
+                }
+            }
+            // 3. 构造消息
+            const messages = [
                 {
                     role: 'system',
-                    content: '你是一个很有帮助的助手，请使用中文回答问题。',
+                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + '\n2. 回答需结合上下文和实时网络信息' + '\n3. 标注信息出处' + searchContext,
                 },
                 ...conversationHistory,
+                { role: 'user', content: prompt },
             ];
-
-            // 3. 调用 Ollama 的 chat 接口（注意 URL 改为 /api/chat）
-            const response = await axios.post(
-                'http://localhost:11434/api/chat',
-                {
-                    // model deepseek-r1:14b
-                    model: model,
-                    messages, // 使用完整的消息数组
-                    stream: true,
-                },
-                {
-                    headers: { 'Content-Type': 'application/json' },
-                    responseType: 'stream',
-                },
-            );
+            // 3. 调用 Ollama 的 chat 接口
+            //  'http://localhost:11434/api/chat',
+            const completion = await ollama.chat({
+                model: model,
+                messages,
+                stream: true,
+            });
 
             let accumulatedResponse = '';
-            response.data.on('data', (chunk: Buffer) => {
-                try {
-                    const jsonString = chunk.toString();
-                    const jsonData = JSON.parse(jsonString);
-
-                    if (jsonData.message?.content) {
-                        // 4. 累加流式响应内容
-                        accumulatedResponse += jsonData.message.content;
-                        res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
-                    }
-                } catch (err) {
-                    console.error('解析流数据错误:', err);
+            for await (const chunk of completion) {
+                if (chunk.message) {
+                    accumulatedResponse += chunk.message.content;
+                    // console.log('chunk', accumulatedResponse);
+                    res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
                 }
-            });
-
-            response.data.on('end', async () => {
-                console.log('流式响应结束');
-                res.write('event: end\ndata: {}\n\n');
-                res.end();
-
-                // 5. 保存完整的响应到数据库
-                if (accumulatedResponse) {
-                    await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
-                }
-            });
+            }
+            if (accumulatedResponse) {
+                await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+            }
+            res.write('event: end\ndata: {}\n\n');
+            res.end();
         } catch (error) {
             console.error('本地模型请求失败:', error);
             res.write(`data: ${JSON.stringify({ error: '本地 AI 调用失败' })}\n\n`);
@@ -170,12 +235,12 @@ export class ai_testservice {
     /**
      * 阿里云模型调用
      * 异步调用模型流式接口
-     * 该方法将用户输入添加到对话历史中，然后调用AI模型进行响应，以流式方式返回AI的回答，并将其添加到对话历史中
+     * 该方法将用户输入添加到对话历史中，然后调用AI模型进行响应，以流式方式返回AI的回答，并将其添加到对话历史中,增加工具调用
      * @param prompt 用户输入的提示信息
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callAliyunStream(prompt: string, conversationId: string, model: string, res: any) {
+    async callAliyunStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
         console.log('使用阿里云模型处理带上下文的请求', prompt);
         let historyList = await this.getConversationHistory(conversationId, '1');
         let conversationHistory = historyList.map(item => {

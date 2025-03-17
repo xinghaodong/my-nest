@@ -9,14 +9,20 @@ export class AiController {
 
     @Public()
     @Get('stream')
-    async streamAI(@Query('prompt') prompt: string, @Query('conversationId') conversationId: string, @Query('model') model: string, @Res() res: Response) {
+    async streamAI(
+        @Query('prompt') prompt: string,
+        @Query('conversationId') conversationId: string,
+        @Query('model') model: string,
+        @Query('enableInternetSearch') enableInternetSearch: string,
+        @Res() res: Response,
+    ) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('Transfer-Encoding', 'chunked');
         try {
             // 调用 AI 服务，获取流式数据
-            await this.aiService.callModelStream(prompt, conversationId,model, res);
+            await this.aiService.callModelStream(prompt, conversationId, model, enableInternetSearch, res);
         } catch (error) {
             res.status(500).write('data: {"error": "AI 流式请求失败"}\n\n');
             res.end();
@@ -64,5 +70,12 @@ export class AiController {
     @Get('ollama-models')
     async getOllamaModels(): Promise<any> {
         return await this.aiService.getOllamaModels();
+    }
+
+    // 谷歌查询
+    @Public()
+    @Get('google-search')
+    async googleSearch(@Query('query') query: string): Promise<any> {
+        return await this.aiService.performGoogleSearch(query);
     }
 }
