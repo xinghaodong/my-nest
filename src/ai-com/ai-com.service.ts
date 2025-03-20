@@ -134,7 +134,7 @@ export class ai_testservice {
             const results = response.data.organic;
             // console.log('results', results);
             // 返回一个数组，每个元素包含标题、描述和链接
-            return results.slice(0, 3).map((item: any) => ({
+            return results.slice(0, 5).map((item: any) => ({
                 title: item.title,
                 snippet: item.snippet,
                 link: item.link,
@@ -199,7 +199,7 @@ export class ai_testservice {
             const messages = [
                 {
                     role: 'system',
-                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + '\n2. 回答需结合上下文和实时网络信息' + '\n3. 标注信息出处' + searchContext,
+                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + '\n3. 标注信息出处给出link链接' + searchContext,
                 },
                 ...conversationHistory,
                 { role: 'user', content: prompt },
