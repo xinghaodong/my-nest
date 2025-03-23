@@ -40,4 +40,8 @@ export class Message {
     // 创建时间 createTime
     @CreateDateColumn()
     createTime: Date;
+
+    // 是否生成完毕 非必传
+    @Column({ nullable: true })
+    isCompleted: string;
 }

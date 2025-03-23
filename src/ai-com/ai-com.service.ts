@@ -178,7 +178,7 @@ export class ai_testservice {
                 res.write(`data: ${JSON.stringify({ status: 'searching', message: '正在进行联网搜索...' })}\n\n`);
                 try {
                     const searchResultsArray = await this.performGoogleSearch(prompt); // 假设返回多个搜索结果的数组
-                    console.log('搜索结果:', typeof searchResultsArray);
+                    console.log('搜索结果:', searchResultsArray);
                     if (Array.isArray(searchResultsArray) && searchResultsArray.length > 0) {
                         searchContext = '\n\n[网络搜索上下文]（更新时间：' + new Date().toLocaleString() + '）\n';
                         console.log('searchResultsArray:', searchResultsArray);
@@ -396,6 +396,7 @@ export class ai_testservice {
         const newRecord = this.messageRepository.create({
             role,
             content: contentToSave,
+            isCompleted: role === 'assistant' ? '1' : '',
             conversation, // 关联会话
         });
         await this.messageRepository.save(newRecord);
