@@ -8,12 +8,14 @@ import { Message } from './entities/ai-com.entity';
 import { format } from 'date-fns';
 import axios from 'axios';
 import ollama from 'ollama';
+import { AbortController } from 'node-abort-controller'; // 注意安装这个包
 /**
  * 本地大模型服务 可以用 node 安装 ollama 也可以自定义客户端访问 直接调用本机的ollama服务
  */
 @Injectable()
 export class ai_testservice {
     private client: OpenAI;
+    public activeControllers = new Map<string, AbortController>();
     private tools: any = [
         // 工具1 获取当前时刻的时间
         {
@@ -148,7 +150,6 @@ export class ai_testservice {
     /** 判断是本地模型还是服务商模型 统一处理流式请求 */
     async callModelStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
         await this.saveChatRecord('user', prompt, conversationId);
-        console.log('model', model);
         if (model === 'qwen-plus') {
             return this.callAliyunStream(prompt, conversationId, model, useInternetSearch, res);
         } else {
@@ -162,6 +163,7 @@ export class ai_testservice {
     async callOllamaStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
         console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求', prompt);
 
+        let accumulatedResponse = '';
         try {
             // 1. 获取对话历史记录
             const historyList = await this.getConversationHistory(conversationId, '1');
@@ -169,6 +171,9 @@ export class ai_testservice {
                 role: item.role === 'user' ? 'user' : 'assistant',
                 content: item.content,
             }));
+            const controller = new AbortController();
+            const { signal } = controller;
+            this.activeControllers.set(conversationId, controller); // 保存控制器
 
             // 2. 判断是否需要联网搜索
             const shouldSearch = this.shouldEnableWebSearch(prompt, conversationHistory);
@@ -178,7 +183,6 @@ export class ai_testservice {
                 res.write(`data: ${JSON.stringify({ status: 'searching', message: '正在进行联网搜索...' })}\n\n`);
                 try {
                     const searchResultsArray = await this.performGoogleSearch(prompt); // 假设返回多个搜索结果的数组
-                    console.log('搜索结果:', searchResultsArray);
                     if (Array.isArray(searchResultsArray) && searchResultsArray.length > 0) {
                         searchContext = '\n\n[网络搜索上下文]（更新时间：' + new Date().toLocaleString() + '）\n';
                         console.log('searchResultsArray:', searchResultsArray);
@@ -206,14 +210,13 @@ export class ai_testservice {
             ];
             // 3. 调用 Ollama 的 chat 接口
             //  'http://localhost:11434/api/chat',
-            const completion = await ollama.chat({
-                model: model,
-                messages,
-                stream: true,
-            });
-
-            let accumulatedResponse = '';
+            const completion = await ollama.chat({ model: model, messages, stream: true, signal } as any);
             for await (const chunk of completion) {
+                if (signal.aborted) {
+                    // 检查是否已中止
+                    throw new Error('Request Aborted'); // 强制抛出错误
+                }
+
                 if (chunk.message) {
                     accumulatedResponse += chunk.message.content;
                     // console.log('chunk', accumulatedResponse);
@@ -226,9 +229,19 @@ export class ai_testservice {
             res.write('event: end\ndata: {}\n\n');
             res.end();
         } catch (error) {
-            console.error('本地模型请求失败:', error);
-            res.write(`data: ${JSON.stringify({ error: '本地 AI 调用失败' })}\n\n`);
-            res.end();
+            if (error.message === 'Request Aborted') {
+                console.log(`流式请求已被手动停止 (ID: ${conversationId})`);
+                // 即使是手动中止也要保存到数据库
+                if (accumulatedResponse) {
+                    await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
+                }
+                res.write('event: end\ndata: {已经被用户手动取消}\n\n');
+            } else {
+                console.error('本地模型请求失败:', error);
+                res.write(`data: ${JSON.stringify({ error: '本地 AI 调用失败' })}\n\n`);
+            }
+        } finally {
+            this.activeControllers.delete(conversationId); // 请求完成后删除控制器
         }
     }
 
@@ -375,6 +388,7 @@ export class ai_testservice {
         let data = await this.chatRecordRepository.save(newConversation);
         return data;
     }
+    // 保存聊天记录
     async saveChatRecord(role: string, content: any, conversationId: string): Promise<void> {
         let conversation_id = Number(conversationId);
         const conversation = await this.chatRecordRepository.findOne({
@@ -427,5 +441,12 @@ export class ai_testservice {
         return models.models;
         //   let list = await axios.get('http://127.0.0.1:11434/api/tags');
         //   return list.data;
+    }
+    // 停止当前ai回答
+    async stopAiAnswer(conversationId: string): Promise<any> {
+        // 停止当前ai回答
+        // let stop = await ollama.stop(conversationId);
+        // return stop;
+        return 'stop';
     }
 }

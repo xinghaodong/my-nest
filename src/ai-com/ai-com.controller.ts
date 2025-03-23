@@ -78,4 +78,17 @@ export class AiController {
     async googleSearch(@Query('query') query: string): Promise<any> {
         return await this.aiService.performGoogleSearch(query);
     }
+    // 停止当前ai回答
+    @Public()
+    @Get('stop-ai')
+    async stopAi(@Query('conversationId') conversationId: string): Promise<any> {
+        const controller = this.aiService.activeControllers.get(conversationId); // 获取控制器
+        if (controller) {
+            controller.abort(); // 停止流式请求
+            this.aiService.activeControllers.delete(conversationId); // 从 Map 中删除
+            return { message: '流式请求已成功停止' };
+        }
+        
+        return { message: '未找到正在进行的流式请求' };
+    }
 }
