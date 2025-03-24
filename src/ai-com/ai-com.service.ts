@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import OpenAI from 'openai';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In } from 'typeorm';
@@ -437,16 +437,11 @@ export class ai_testservice {
     }
     // 查询本地ollama模型
     async getOllamaModels(): Promise<any> {
-        let models = await ollama.list();
-        return models.models;
-        //   let list = await axios.get('http://127.0.0.1:11434/api/tags');
-        //   return list.data;
-    }
-    // 停止当前ai回答
-    async stopAiAnswer(conversationId: string): Promise<any> {
-        // 停止当前ai回答
-        // let stop = await ollama.stop(conversationId);
-        // return stop;
-        return 'stop';
+        try {
+            let models = await ollama.list();
+            return models.models;
+        } catch (error) {
+            throw new HttpException('本地模型加载失败', HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 }
