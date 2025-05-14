@@ -36,7 +36,7 @@ async function bootstrap() {
             exceptionFactory: errors => {
                 Logger.error(errors);
                 // console.error(errors); // 打印验证错误
-                // return new BadRequestException(errors); // 返回自定义的异常信息
+                return new BadRequestException(errors); // 返回自定义的异常信息
             },
         }),
     );

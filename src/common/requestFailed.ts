@@ -15,7 +15,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
         // 设置错误信息
         let message = exception.message ? exception.message : `${status >= 500 ? '服务异常' : '服务异常'}`;
-
         // 如果是验证错误，进一步处理错误信息
         if (exception instanceof BadRequestException) {
             const validationErrors = exception.getResponse() as { [key: string]: any };

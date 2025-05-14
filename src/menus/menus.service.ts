@@ -110,9 +110,6 @@ export class MenusService {
         if (roles.some(role => role.name !== '超级管理员')) {
             // 获取角色对应的菜单权限
             const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
-            if (!menuIds || menuIds.length === 0) {
-                // throw new NotFoundException('没有找到用户角色的菜单权限');
-            }
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
         } else {

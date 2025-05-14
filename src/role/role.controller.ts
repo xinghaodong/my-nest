@@ -23,10 +23,10 @@ export class RoleController {
         return this.roleService.findAll();
     }
 
-    @Post('remove')
-    remove(@Body('id') id: string) {
-        return this.roleService.remove(+id);
-    }
+    // @Post('remove')
+    // remove(@Body('id') id: string) {
+    //     return this.roleService.remove(+id);
+    // }
 
     // 详情
     @Get('detail')

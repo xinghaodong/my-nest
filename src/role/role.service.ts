@@ -138,10 +138,6 @@ export class RoleService {
         return result;
     }
 
-    remove(id: number) {
-        return `This action removes a #${id} role`;
-    }
-
     /**
      * 根据角色id数组获取对应的菜单
      */
@@ -152,7 +148,7 @@ export class RoleService {
             relations: ['menus'], // 加载当前角色的菜单
         });
         if (!roles || roles.length === 0) {
-            throw new NotFoundException('No roles found for the given role IDs');
+            throw new NotFoundException('角色数组是空');
         }
         // 获取角色对应的菜单权限
         const menuIds = roles.flatMap(role => role.menus.map(menu => menu.id));

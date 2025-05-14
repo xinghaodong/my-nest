@@ -20,7 +20,7 @@ export class Role {
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
 
-    @ManyToMany(() => Menu, menu => menu.roles, { cascade: ['insert', 'update'] }) // 仅设置插入和更新级联
+    @ManyToMany(() => Menu, menu => menu.roles, { cascade: ['insert', 'update', 'remove'] }) // 仅设置插入和更新级联
     @JoinTable() // 这个装饰器会告诉 TypeORM 需要创建中间表
     menus: Menu[];
 
