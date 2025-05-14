@@ -51,7 +51,7 @@ async function bootstrap() {
         allowedHeaders: 'Content-Type, Authorization',
     });
     const configService = app.get(ConfigService);
-    const port = configService.get<number>('PORT', 3000);
+    const port = configService.get<number>('PORT', 3001);
     const host = configService.get<string>('HOST', '0.0.0.0');
 
     // await app.listen(process.env.PORT ?? 3000, '0.0.0.0');

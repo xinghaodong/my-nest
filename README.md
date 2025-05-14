@@ -24,76 +24,31 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+📝 项目描述
+这是一个基于 NestJS 的 Node.js 后端服务框架，采用 TypeScript 编写，旨在构建高效、可扩展的服务器端应用程序。该项目已经配置了基础依赖与开发工具链，支持快速启动、热重载、单元测试等现代开发流程。
 
-## Project setup
+你可以在此基础上快速搭建 API 接口服务、微服务、WebSocket 实时通信等功能模块，并结合数据库（如 TypeORM / Prisma）进行数据持久化管理。
 
-```bash
-$ yarn install
-```
+⚡ 功能亮点
+TypeScript 支持
 
-## Compile and run the project
+使用强类型语言提升代码质量与可维护性。
+模块化架构
 
-```bash
-# development
-$ yarn run start
+基于 Nest 的模块系统，易于组织业务逻辑、解耦组件。
+CLI 工具集成
 
-# watch mode
-$ yarn run start:dev
+提供 nest 命令行工具快速生成 Controller、Service、Module 等结构。
+开发体验优化
 
-# production mode
-$ yarn run start:prod
-```
+支持 start:dev 热重载模式，提高开发效率。
+内置日志、异常处理机制，便于调试。
+测试友好
 
-## Run tests
+集成单元测试配置（Jest），支持自动化测试。
+生产环境部署准备
 
-```bash
-# unit tests
-$ yarn run test
+提供 start:prod 构建和运行方式，适合上线部署。
+可扩展性强
 
-# e2e tests
-$ yarn run test:e2e
-
-# test coverage
-$ yarn run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ yarn install -g mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
--   Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
--   For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
--   To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
--   Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
--   Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
--   Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
--   To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
--   Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
--   Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
--   Website - [https://nestjs.com](https://nestjs.com/)
--   Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+可轻松接入数据库（如 PostgreSQL、MySQL）、缓存（Redis）、消息队列（RabbitMQ/Kafka）等第三方服务。
