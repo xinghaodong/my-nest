@@ -52,4 +52,9 @@ export class CreateMenuDto {
     @IsOptional()
     @Type(() => Number)
     roleIds?: number[];
+
+    // 是否全屏
+    @IsOptional()
+    isscreen?: string;
+
 }
