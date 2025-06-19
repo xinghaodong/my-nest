@@ -20,7 +20,7 @@ export class InternalUser {
     age: string;
 
     @Column()
-    @Exclude()
+    @Exclude() // 忽略字段 不要返回前端这个字段
     password: string;
 
     // 邮箱
