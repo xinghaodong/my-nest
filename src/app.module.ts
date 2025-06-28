@@ -19,6 +19,7 @@ import { AuthModule } from './auth/auth.module';
 import { OrgManagementModule } from './systemSetting/org-management/org-management.module';
 import { ProcessApprovalModule } from './process-approval/process-approval.module';
 import { AiModule } from './ai-com/ai-com.module';
+import { CesiumModule } from './cesium/cesium.module';
 
 @Module({
     imports: [
@@ -62,6 +63,7 @@ import { AiModule } from './ai-com/ai-com.module';
         OrgManagementModule,
         ProcessApprovalModule,
         AiModule,
+        CesiumModule,
     ],
     controllers: [AppController],
     providers: [AppService],

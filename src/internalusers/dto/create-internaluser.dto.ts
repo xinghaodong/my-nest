@@ -1,6 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsOptional, MinLength, IsString, Matches, IsArray } from 'class-validator';
-import { IsNotEmpty } from 'class-validator';
+import { IsNotEmpty, IsOptional, MinLength, IsString, Matches, IsArray } from 'class-validator';
 import { FileList } from '../../filelist/entities/filelist.entity';
 export class CreateInternaluserDto {
     id: number;

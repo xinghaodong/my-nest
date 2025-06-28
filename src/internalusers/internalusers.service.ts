@@ -94,10 +94,8 @@ export class InternalusersService {
         }
 
         let [data, total] = await queryBuilder.getManyAndCount();
-        console.log('data', data);
         data = plainToInstance(InternalUser, data);
 
-        
         // 使用 formatUser 函数处理每个用户的字段
         const formattedData = data.map(formatUser);
         return { data: data, total };

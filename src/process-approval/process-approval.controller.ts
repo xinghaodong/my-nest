@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Delete, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ProcessApprovalService } from './process-approval.service';
 import { CreateProcessApprovalDto } from './dto/create-process-approval.dto';
 import { UpdateProcessApprovalDto } from './dto/update-process-approval.dto';
@@ -13,7 +13,7 @@ export class ProcessApprovalController {
     }
 
     @Get()
-    async findAll(@Query('page') page: number = 1, @Query('pageSize') pageSize: number = 10) {
+    async findAll(@Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number = 1, @Query('pageSize', new DefaultValuePipe(10), ParseIntPipe) pageSize: number = 10) {
         return await this.processApprovalService.findAll(page, pageSize);
     }
 
