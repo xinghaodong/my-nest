@@ -7,7 +7,6 @@ import { ConfigService } from '@nestjs/config';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
 import { JwtAuthGuard } from './auth/jwt.auth.guard';
-import { log } from 'console';
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
     app.setGlobalPrefix('api'); // 设置全局路由前缀为 'api'

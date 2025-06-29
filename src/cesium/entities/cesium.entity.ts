@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { Waypoint } from './waypoint.entity';
 
 // 航线名称  航点数量 航线预估时间 状态 创建时间 更新时间
 @Entity()
@@ -23,4 +24,7 @@ export class Cesium {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
+
+    @OneToMany(() => Waypoint, waypoint => waypoint.route)
+    tempWaypoints: Waypoint[];
 }
