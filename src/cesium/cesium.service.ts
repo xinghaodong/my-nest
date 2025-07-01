@@ -16,10 +16,12 @@ export class CesiumService {
         private waypointRepository: Repository<Waypoint>,
     ) {}
     async create(createCesiumDto: CreateCesiumDto) {
-        // 这里关联 waypoint 航点表
-
-        // 2. 如果有航点数据，创建关联航点
         if (createCesiumDto.tempWaypoints && createCesiumDto.tempWaypoints.length > 0) {
+            // 先判断航线名称是否有重复的
+            const existingCesium = await this.cesiumRepository.findOneBy({ name: createCesiumDto.name });
+            if (existingCesium) {
+                throw new HttpException('航线名称已存在', HttpStatus.BAD_REQUEST);
+            }
             // 1. 创建航线记录
             const cesium = await this.cesiumRepository.save({
                 name: createCesiumDto.name,
@@ -65,8 +67,39 @@ export class CesiumService {
         return cesium;
     }
 
-    update(id: number, updateCesiumDto: UpdateCesiumDto) {
-        // return `This action updates a #${id} cesium`;
+    async update(id: number, updateCesiumDto: UpdateCesiumDto) {
+        const { tempWaypoints, ...updateData } = updateCesiumDto;
+        // 这种可以增加事务
+        // 1. 更新主表 Cesium（排除 tempWaypoints）
+        await this.cesiumRepository.update(id, updateData);
+    
+        // 2. 查询主表实体用于设置外键
+        const cesium = await this.cesiumRepository.findOneBy({ id });
+        if (!cesium) {
+            throw new HttpException('未找到航线', HttpStatus.NOT_FOUND);
+        }
+    
+        // 3. 删除旧的航点
+        await this.waypointRepository.delete({ route: { id } });
+    
+        // 4. 插入新的航点（如果存在）
+        if (tempWaypoints && tempWaypoints.length > 0) {
+            const waypointEntities = tempWaypoints.map((dto) =>
+                this.waypointRepository.create({
+                    latitude: dto.latitude,
+                    longitude: dto.longitude,
+                    height: dto.height,
+                    route: cesium, // 设置关联关系
+                }),
+            );
+            await this.waypointRepository.save(waypointEntities);
+        }
+    
+        // 5. 返回更新后的完整数据
+        return this.cesiumRepository.findOne({
+            where: { id },
+            relations: ['tempWaypoints'],
+        });
     }
 
     async remove(id: number) {

@@ -17,13 +17,19 @@ export class CesiumController {
         return this.cesiumService.findAll(page, pageSize);
     }
     @Post('delete')
-    update(@Body('id') id: number) {
+    remove(@Body('id') id: number) {
         return this.cesiumService.remove(id);
     }
 
-    // get 获取航线详情接口
+    // 获取航线详情接口
     @Get('detail')
-    async findOne(@Query('id') id: number) {
+    findOne(@Query('id') id: number) {
         return this.cesiumService.findOne(id);
+    }
+    // post 修改航线接口
+
+    @Post('update')
+    update(@Body() updateCesiumDto: UpdateCesiumDto) {
+        return this.cesiumService.update(updateCesiumDto.id, updateCesiumDto);
     }
 }
