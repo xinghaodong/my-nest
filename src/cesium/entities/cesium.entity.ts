@@ -19,6 +19,12 @@ export class Cesium {
     @Column()
     status: number;
 
+    @Column()
+    speed: string;
+
+    @Column()
+    trackmileage: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     created_at: Date;
 

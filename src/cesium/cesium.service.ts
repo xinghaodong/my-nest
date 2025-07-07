@@ -22,25 +22,23 @@ export class CesiumService {
             if (existingCesium) {
                 throw new HttpException('航线名称已存在', HttpStatus.BAD_REQUEST);
             }
-            // 1. 创建航线记录
-            const cesium = await this.cesiumRepository.save({
-                name: createCesiumDto.name,
-                time: createCesiumDto.time,
-                pointNum: createCesiumDto.pointNum,
-                status: createCesiumDto.status,
+            const cesiumEntity = this.cesiumRepository.create({
+                ...createCesiumDto,
+                tempWaypoints: undefined, // 先排除航点，后面单独处理
             });
+            const savedCesium = await this.cesiumRepository.save(cesiumEntity);
             const tempWaypoints = createCesiumDto.tempWaypoints.map((waypointDto, index) => {
                 return this.waypointRepository.create({
                     latitude: waypointDto.latitude,
                     longitude: waypointDto.longitude,
                     height: waypointDto.height,
-                    route: cesium, // 使用正确的关联关系
+                    route: savedCesium, // 使用正确的关联关系
                 });
             });
             await this.waypointRepository.save(tempWaypoints);
             // 3. 返回完整数据（包含航点）
             return this.cesiumRepository.findOne({
-                where: { id: cesium.id },
+                where: { id: cesiumEntity.id },
                 relations: ['tempWaypoints'],
             });
         } else {
@@ -72,19 +70,19 @@ export class CesiumService {
         // 这种可以增加事务
         // 1. 更新主表 Cesium（排除 tempWaypoints）
         await this.cesiumRepository.update(id, updateData);
-    
+
         // 2. 查询主表实体用于设置外键
         const cesium = await this.cesiumRepository.findOneBy({ id });
         if (!cesium) {
             throw new HttpException('未找到航线', HttpStatus.NOT_FOUND);
         }
-    
+
         // 3. 删除旧的航点
         await this.waypointRepository.delete({ route: { id } });
-    
+
         // 4. 插入新的航点（如果存在）
         if (tempWaypoints && tempWaypoints.length > 0) {
-            const waypointEntities = tempWaypoints.map((dto) =>
+            const waypointEntities = tempWaypoints.map(dto =>
                 this.waypointRepository.create({
                     latitude: dto.latitude,
                     longitude: dto.longitude,
@@ -94,7 +92,7 @@ export class CesiumService {
             );
             await this.waypointRepository.save(waypointEntities);
         }
-    
+
         // 5. 返回更新后的完整数据
         return this.cesiumRepository.findOne({
             where: { id },

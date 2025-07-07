@@ -15,6 +15,13 @@ export class CreateCesiumDto {
     @IsNotEmpty()
     status: number;
 
+    @IsNotEmpty()
+    speed: string;
+
+    @IsNotEmpty()
+    trackmileage: string;
+    
+
     @Transform(({ value }) => (value ? new Date(value).toLocaleString() : null))
     created_at?: Date;
 
