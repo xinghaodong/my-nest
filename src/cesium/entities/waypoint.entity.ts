@@ -1,4 +1,4 @@
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Cesium } from './cesium.entity';
 @Entity()
 export class Waypoint {
@@ -19,5 +19,6 @@ export class Waypoint {
         onDelete: 'CASCADE', // 数据库级联删除
         cascade: ['insert'], // 只自动保存新航线
     })
+    @JoinColumn({ name: 'route_id' }) // 明确指定外键列名
     route: Cesium;
 }
