@@ -186,6 +186,8 @@ export class MenusService {
     }
     // 删除菜单
     async remove(id: number): Promise<void> {
+        // 删除中间表中的关联数据 这里中间表没有实体就用sql语句删除
+        await this.menuRepository.query('DELETE FROM role_menus_menu WHERE menuId = ?', [id]);
         const result = await this.menuRepository.delete(id);
         if (result.affected === 0) {
             throw new HttpException('未找到菜单', 404);
