@@ -10,9 +10,9 @@ export class OrgManagementService {
     @InjectRepository(OrgManagement)
     private orgManagementRepository: Repository<OrgManagement>;
     async create(createOrgManagementDto: CreateOrgManagementDto) {
-        // 增加判断 如果是菜单唯一编码重复了禁止添加
+        // 增加判断 如果是组织唯一编码重复了禁止添加
         if (await this.orgManagementRepository.findOne({ where: { orgcode: createOrgManagementDto.orgcode } })) {
-            throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
+            throw new HttpException('组织唯一编码重复', HttpStatus.BAD_REQUEST);
         }
         return await this.orgManagementRepository.save(createOrgManagementDto);
     }
@@ -24,7 +24,7 @@ export class OrgManagementService {
             if (menu.parentId === null) {
                 result.push(menu);
             } else {
-                // 如果有父菜单，找到它并将当前菜单添加到父菜单的 children 数组中
+                // 如果有父菜单，找到它并将当前菜单添加到父组织的 children 数组中
                 const parent = menus.find(m => m.organid === menu.parentId);
                 if (parent) {
                     if (!parent.children) {
@@ -73,9 +73,9 @@ export class OrgManagementService {
         // 删除updateOrgManagementDto 的 organid
         delete updateOrgManagementDto.organid;
 
-        if (existingOrg) {
-            throw new HttpException('菜单唯一编码重复', HttpStatus.BAD_REQUEST);
-        }
+        // if (existingOrg) {
+        //     throw new HttpException('组织唯一编码重复', HttpStatus.BAD_REQUEST);
+        // }
         // 合并有效字段到原有用户数据
         const updated = Object.assign(obj, updateOrgManagementDto);
         // 保存更新后的用户数据

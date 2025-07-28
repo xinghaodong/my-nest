@@ -14,8 +14,8 @@ export class OrgManagementController {
 
     // 修改
     @Post('update')
-    update(@Body('id') id: number, @Body() updateOrgManagementDto: UpdateOrgManagementDto) {
-        return this.orgManagementService.update(id, updateOrgManagementDto);
+    update(@Body('organid') organid: number, @Body() updateOrgManagementDto: UpdateOrgManagementDto) {
+        return this.orgManagementService.update(organid, updateOrgManagementDto);
     }
 
     @Get()
