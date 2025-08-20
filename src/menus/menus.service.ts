@@ -3,7 +3,7 @@ import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { Menu } from './entities/menu.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, Not, Repository, IsNull } from 'typeorm';
 import { AuthService } from '../auth/auth.service'; // 引入 AuthService
 import { RoleService } from '../role/role.service';
 import { InternalusersService } from '../internalusers/internalusers.service';
@@ -210,5 +210,12 @@ export class MenusService {
         }
 
         return menu;
+    }
+
+    async getMenusByPid(pid: number | null): Promise<Menu[]> {
+        return await this.menuRepository.find({
+            where: { parentId: !pid ? IsNull() : pid },
+            order: { sorts: 'ASC', id: 'ASC' },
+        });
     }
 }

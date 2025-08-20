@@ -17,6 +17,7 @@ export class AuthService {
     async validateUser(username: string, password: string): Promise<any> {
         const user = await this.userService.validateUser(username, password); // 调用用户服务中的验证逻辑
         if (user) {
+            console.log('user:', user);
             const { password, ...result } = user; // 不返回密码
             return result;
         }

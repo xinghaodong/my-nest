@@ -33,4 +33,10 @@ export class MenusController {
     findOne(@Query('id') id: number) {
         return this.menusService.detail(id);
     }
+
+    // 更具父级ID查询 getMenusByPid
+    @Get('/getMenusByPid')
+    getMenusByPid(@Query('pid') pid: number | null) {
+        return this.menusService.getMenusByPid(pid);
+    }
 }
