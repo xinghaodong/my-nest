@@ -218,4 +218,18 @@ export class MenusService {
             order: { sorts: 'ASC', id: 'ASC' },
         });
     }
+
+    /**
+     * 排序保存
+     * @param ids
+     * @returns
+     */
+    async saveMenuSort(ids: Array<number>): Promise<boolean> {
+        const menus = await this.menuRepository.findBy({ id: In(ids) });
+        menus.forEach(menu => {
+            menu.sorts = ids.indexOf(menu.id) + 1;
+        });
+        await this.menuRepository.save(menus);
+        return true;
+    }
 }

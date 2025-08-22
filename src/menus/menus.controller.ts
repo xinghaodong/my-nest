@@ -34,9 +34,19 @@ export class MenusController {
         return this.menusService.detail(id);
     }
 
-    // 更具父级ID查询 getMenusByPid
+    // 根据父级ID查询 getMenusByPid
     @Get('/getMenusByPid')
     getMenusByPid(@Query('pid') pid: number | null) {
         return this.menusService.getMenusByPid(pid);
+    }
+
+    /**
+     * 排序保存
+     * @param ids
+     * @returns
+     */
+    @Post('/saveMenuSort')
+    saveMenuSort(@Body() ids: Array<number>) {
+        return this.menusService.saveMenuSort(ids);
     }
 }
