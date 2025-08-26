@@ -7,10 +7,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-interface ProcessVideoOptions {
-    name?: string;
-    fps?: number;
-}
 @Injectable()
 export class VideoService {
     constructor(
@@ -21,7 +17,7 @@ export class VideoService {
     async getVideoList() {
         return await this.VideoEntity.find();
     }
-    async processVideo(obj: any, file: Express.Multer.File): Promise<VideoEntity> {
+    async processVideo(name: string, fpsparam: number, file: Express.Multer.File): Promise<VideoEntity> {
         const uploadDir = path.join(__dirname, '..', '..', 'uploads');
         if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
@@ -37,7 +33,7 @@ export class VideoService {
         const videoPath = path.join(videoDir, file.originalname + ext);
         fs.writeFileSync(videoPath, file.buffer);
 
-        // ============ 使用 ffprobe 获取视频元信息 ============
+        // 使用 ffprobe 获取视频元信息
         let duration = 0;
         let metadata: any = null;
 
@@ -60,7 +56,7 @@ export class VideoService {
         }
 
         // 拆帧 fps=1 代表1秒1帧 支持动态 fps
-        const fps = obj?.fps || 1; // 前端传了用传的，没传默认 1
+        const fps = fpsparam || 1; // 前端传了用传的，没传默认 1
         await new Promise((resolve, reject) => {
             const { spawn } = require('child_process');
             const ffmpeg = spawn('ffmpeg', ['-i', videoPath, '-vf', `fps=${fps}`, path.join(videoDir, 'frames', 'frame-%03d.png')]);
@@ -79,7 +75,7 @@ export class VideoService {
             .filter(f => f.endsWith('.png'))
             .map(f => `${relativeDir}/frames/${f}`); // uploads/abc123/frames/frame-001.png
         const video = this.VideoEntity.create({
-            name: obj || path.parse(file.originalname).name,
+            name: name || path.parse(file.originalname).name,
             filepath: `${relativeDir}/${file.originalname}${ext}`, //  相对路径
             frames: frameFiles,
             uploadId,
@@ -106,5 +102,145 @@ export class VideoService {
         // 2. 从数据库删除记录
         await this.VideoEntity.remove(video);
         return;
+    }
+
+    /**
+     * 修改视频
+     * @param id
+     * @param name
+     * @param fps
+     * @param file
+     * @returns
+     */
+    async updateVideo(
+        id: number,
+        name: string,
+        fps: number | undefined,
+        file: Express.Multer.File | null, // 允许为 null
+    ): Promise<VideoEntity> {
+        console.log('updateVideo', id, name, fps, file);
+        const video = await this.VideoEntity.findOne({ where: { id } });
+        if (!video) throw new Error('未找到视频');
+
+        const uploadDir = path.join(__dirname, '..', '..', 'uploads');
+        const videoDir = path.join(uploadDir, video.uploadId);
+        const relativeDir = `uploads/${video.uploadId}`;
+        const framesDir = path.join(videoDir, 'frames');
+
+        let shouldReprocess = false; // 是否需要重新拆帧
+        let videoPath = path.join(videoDir, path.basename(video.filepath)); // 当前视频路径
+
+        // === 1. 判断是否需要重新处理 改了 fps 或换了文件===
+        const originalFps = video.fps;
+        const newFps = typeof fps === 'number' ? fps : originalFps;
+        const fpsChanged = typeof fps === 'number' && fps !== originalFps;
+        const fileChanged = !!file;
+
+        if (fpsChanged || fileChanged) {
+            shouldReprocess = true;
+        }
+
+        // === 2. 如果换了文件：删除旧目录，写入新文件 ===
+        if (fileChanged) {
+            // 删除旧的整个目录（包括视频 + 帧）
+            if (fs.existsSync(videoDir)) {
+                fs.rmSync(videoDir, { recursive: true, force: true });
+            }
+
+            // 创建新目录
+            fs.mkdirSync(videoDir);
+            fs.mkdirSync(framesDir);
+
+            // 写入新视频
+            const ext = path.extname(file.originalname);
+            const newFilename = file.originalname + ext;
+            videoPath = path.join(videoDir, newFilename);
+
+            fs.writeFileSync(videoPath, file.buffer);
+
+            // 更新数据库字段
+            video.filepath = `${relativeDir}/${newFilename}`;
+        } else {
+            // 没换文件：确保原视频路径存在
+            if (!fs.existsSync(videoPath)) {
+                throw new Error('原视频文件丢失，无法重新处理');
+            }
+        }
+
+        //  3. 如果需要重新处理 fps 改了 或 文件换了
+        if (shouldReprocess) {
+            // 清空旧帧 即使只是改 fps
+            if (fs.existsSync(framesDir)) {
+                fs.rmSync(framesDir, { recursive: true, force: true });
+            }
+            fs.mkdirSync(framesDir); // 重建
+
+            // === 重新获取元信息（ffprobe）===
+            let duration = 0;
+            let metadata: any = null;
+            try {
+                const { spawnSync } = require('child_process');
+                const ffprobe = spawnSync('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', videoPath]);
+
+                if (ffprobe.status === 0) {
+                    const output = JSON.parse(ffprobe.stdout.toString());
+                    duration = parseFloat(output.format.duration) || 0;
+                    metadata = {
+                        format: output.format.format_name,
+                        bitrate: output.format.bit_rate,
+                        size: output.format.size,
+                    };
+                }
+            } catch (err) {
+                console.warn('ffprobe 失败', err);
+                duration = 0;
+                metadata = null;
+            }
+
+            // === 重新拆帧（ffmpeg）===
+            await new Promise((resolve, reject) => {
+                const { spawn } = require('child_process');
+                const ffmpeg = spawn('ffmpeg', ['-i', videoPath, '-vf', `fps=${newFps}`, path.join(framesDir, 'frame-%03d.png')]);
+
+                ffmpeg.on('close', code => {
+                    if (code === 0) {
+                        resolve(true);
+                    } else {
+                        reject(new Error('FFmpeg 拆帧失败'));
+                    }
+                });
+
+                // 可选：监听日志
+                ffmpeg.stderr.on('data', data => {
+                    console.log(`[FFmpeg] ${data.toString()}`);
+                });
+            });
+
+            // === 生成新帧路径列表 ===
+            const frameFiles = fs
+                .readdirSync(framesDir)
+                .filter(f => f.endsWith('.png'))
+                .map(f => `${relativeDir}/frames/${f}`);
+
+            // === 更新需要变动的字段 ===
+            video.frames = frameFiles;
+            video.fps = newFps;
+            video.duration = duration;
+            video.metadata = metadata;
+        }
+
+        // === 4. 更新名称（无论是否重处理）===
+        if (name) {
+            video.name = name;
+        } else if (!fileChanged) {
+            // 如果没传 name 且没换文件，保持原名
+            // 如果换了文件但没传 name，用新文件名
+            if (fileChanged) {
+                video.name = path.parse(file.originalname).name;
+            }
+        }
+
+        // === 5. 保存到数据库 ===
+        return await this.VideoEntity.save(video);
     }
 }

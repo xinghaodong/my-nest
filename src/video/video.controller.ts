@@ -1,4 +1,4 @@
-import { Body, Controller, Get, ParseIntPipe, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Logger, ParseIntPipe, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { VideoService } from './video.service';
 import { VideoEntity } from './video.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -21,8 +21,9 @@ export class VideoController {
      */
     @Post('create')
     @UseInterceptors(FileInterceptor('file'))
-    async createVideo(@Body('name') name: string, @UploadedFile() file: Express.Multer.File): Promise<VideoEntity> {
-        return await this.service.processVideo(name, file);
+    async createVideo(@Body('name') name: string, @Body('fps') fps: number, @UploadedFile() file: Express.Multer.File): Promise<VideoEntity> {
+        console.log(name, fps);
+        return await this.service.processVideo(name, fps, file);
     }
 
     /**
@@ -32,5 +33,21 @@ export class VideoController {
     @Post('delete')
     async deleteVideo(@Body('id', new ParseIntPipe()) id: number): Promise<void> {
         await this.service.deleteVideo(id);
+    }
+
+    /**
+     * 修改视频
+     * @param id 视频id
+     */
+
+    @Post('update')
+    @UseInterceptors(FileInterceptor('file'))
+    async updateVideo(
+        @Body('id', new ParseIntPipe()) id: number,
+        @Body('name') name: string,
+        @Body('fps') fps: number,
+        @UploadedFile() file: Express.Multer.File,
+    ): Promise<VideoEntity> {
+        return await this.service.updateVideo(id, name, fps, file);
     }
 }
