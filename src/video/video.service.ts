@@ -239,4 +239,15 @@ export class VideoService {
         //  5. 保存到数据库
         return await this.VideoEntity.save(video);
     }
+
+    /**
+     * 获取视频详情
+     * @param id 视频id
+     * @return 视频相关信息
+     */
+    async detail(id: number): Promise<VideoEntity> {
+        const video = await this.VideoEntity.findOne({ where: { id } });
+        if (!video) throw new Error('未找到视频');
+        return video;
+    }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, ParseIntPipe, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Logger, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { VideoService } from './video.service';
 import { VideoEntity } from './video.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -49,5 +49,15 @@ export class VideoController {
         @UploadedFile() file: Express.Multer.File,
     ): Promise<VideoEntity> {
         return await this.service.updateVideo(id, name, fps, file);
+    }
+
+    /**
+     * 获取视频
+     * @param id 视频id
+     * @return 视频相关信息
+     */
+    @Get('detail')
+    async getVideo(@Query('id') id: number): Promise<VideoEntity> {
+        return await this.service.detail(id);
     }
 }
