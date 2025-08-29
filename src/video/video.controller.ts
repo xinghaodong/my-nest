@@ -2,6 +2,7 @@ import { Body, Controller, Get, Logger, ParseIntPipe, Post, Query, UploadedFile,
 import { VideoService } from './video.service';
 import { VideoEntity } from './video.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { videoDto } from './video.dto';
 
 @Controller('video')
 export class VideoController {
@@ -21,9 +22,8 @@ export class VideoController {
      */
     @Post('create')
     @UseInterceptors(FileInterceptor('file'))
-    async createVideo(@Body('name') name: string, @Body('fps') fps: number, @UploadedFile() file: Express.Multer.File): Promise<VideoEntity> {
-        console.log(name, fps);
-        return await this.service.processVideo(name, fps, file);
+    async createVideo(@Body() videoDto: videoDto, @UploadedFile() file: Express.Multer.File): Promise<VideoEntity> {
+        return await this.service.processVideo(videoDto, file);
     }
 
     /**
