@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Logger, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { VideoService } from './video.service';
 import { VideoEntity } from './video.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -13,8 +13,8 @@ export class VideoController {
      * @returns 视频列表
      */
     @Get('findAll')
-    async getVideoList(): Promise<VideoEntity[]> {
-        return await this.service.getVideoList();
+    async getVideoList(@Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number, @Query('pageSize', new DefaultValuePipe(10), ParseIntPipe) pageSize: number) {
+        return await this.service.getVideoList(page, pageSize);
     }
     /**
      * 创建视频

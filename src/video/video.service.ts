@@ -42,8 +42,14 @@ export class VideoService {
         private VideoEntity: Repository<VideoEntity>,
     ) {}
 
-    async getVideoList() {
-        return await this.VideoEntity.find();
+    async getVideoList(page?: number, pageSize: number = 10): Promise<{ list: VideoEntity[]; total: number }> {
+        const [list, total] = await this.VideoEntity.findAndCount({
+            skip: (page - 1) * pageSize, // 跳过的数据量
+            take: pageSize, // 每页取出的数据量
+        });
+        return { list: list, total }; // 返回查询结果和总记录数
+
+        // return await this.VideoEntity.find();
     }
     async processVideo(videoDto: videoDto, file: Express.Multer.File): Promise<VideoEntity> {
         // console.log(videoDto, 'videoDto1');
