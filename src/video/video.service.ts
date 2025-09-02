@@ -89,7 +89,18 @@ export class VideoService {
         const fpsparam = fps || 1; // 前端传了用传的，没传默认 1
         await new Promise((resolve, reject) => {
             // const { spawn } = require('child_process');
-            const ffmpeg = spawn('ffmpeg', ['-i', videoPath, '-vf', `fps=${fpsparam}`, path.join(videoDir, 'frames', 'frame-%03d.png')]);
+            const ffmpeg = spawn('nice', [
+                '-n',
+                '10', // 降低优先级
+                'ffmpeg',
+                '-threads',
+                '1', // 限制为1个线程
+                '-i',
+                videoPath, // 输入视频路径
+                '-vf',
+                `fps=${fpsparam}`, // 视频滤镜：按指定帧率抽帧
+                path.join(videoDir, 'frames', 'frame-%03d.png'), // 输出路径模板
+            ]);
             ffmpeg.on('close', code => {
                 if (code === 0) {
                     resolve(true);
