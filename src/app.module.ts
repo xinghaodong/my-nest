@@ -21,6 +21,7 @@ import { ProcessApprovalModule } from './process-approval/process-approval.modul
 import { AiModule } from './ai-com/ai-com.module';
 import { CesiumModule } from './cesium/cesium.module';
 import { VideoModule } from './video/video.module';
+import { LogicFlowModule } from './logic-flow/logic-flow.module';
 
 @Module({
     imports: [
@@ -66,6 +67,7 @@ import { VideoModule } from './video/video.module';
         AiModule,
         CesiumModule,
         VideoModule,
+        LogicFlowModule,
     ],
     controllers: [AppController],
     providers: [AppService],
