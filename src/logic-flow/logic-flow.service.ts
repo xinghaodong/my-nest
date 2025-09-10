@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import { CreateLogicFlowDto } from './dto/create-logic-flow.dto';
 import { UpdateLogicFlowDto } from './dto/update-logic-flow.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -26,15 +26,27 @@ export class LogicFlowService {
         return { data: data, total };
     }
 
-    findOne(id: number) {
-        return `This action returns a #${id} logicFlow`;
+    async findOne(id: number): Promise<LogicFlow> {
+        return await this.logicFlowRepository.findOneBy({ id: id });
     }
 
-    update(id: number, updateLogicFlowDto: UpdateLogicFlowDto) {
-        return `This action updates a #${id} logicFlow`;
+    async update(id: number, updateLogicFlowDto: UpdateLogicFlowDto) {
+        console.log(id, 'id');
+        const existingData = await this.findOne(id);
+        if (!existingData) {
+            throw new HttpException('未找到流程', 404);
+        }
+        // 合并有效字段到原有数据
+        const updatedData = Object.assign(existingData, updateLogicFlowDto);
+        // 保存更新
+        const result = await this.logicFlowRepository.save(updatedData);
+        return result;
     }
 
-    remove(id: number) {
-        return `This action removes a #${id} logicFlow`;
+    async remove(id: number) {
+        const result = await this.logicFlowRepository.delete(id);
+        if (result.affected === 0) {
+            throw new HttpException('没找到流程', 404);
+        }
     }
 }

@@ -54,7 +54,7 @@ import { LogicFlowModule } from './logic-flow/logic-flow.module';
                 username: configService.get('DB_USERNAME'), // 用户名
                 password: configService.get('DB_PASSWORD'), // 密码
                 database: configService.get('DB_DATABASE'), //数据库名
-                synchronize: false, //根据实体自动创建数据库表， 生产环境建议关闭
+                synchronize: true, //根据实体自动创建数据库表， 生产环境建议关闭
             }),
         }),
         InternalusersModule,

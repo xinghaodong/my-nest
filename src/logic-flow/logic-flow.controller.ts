@@ -18,18 +18,18 @@ export class LogicFlowController {
         return this.logicFlowService.findAll(page, pageSize);
     }
 
-    @Get(':id')
-    findOne(@Param('id') id: string) {
+    @Get('detail')
+    findOne(@Query('id') id: string) {
         return this.logicFlowService.findOne(+id);
     }
 
-    @Patch(':id')
-    update(@Param('id') id: string, @Body() updateLogicFlowDto: UpdateLogicFlowDto) {
-        return this.logicFlowService.update(+id, updateLogicFlowDto);
+    @Post('update')
+    update(@Body('id') id: number, @Body() createLogicFlowDto: CreateLogicFlowDto) {
+        return this.logicFlowService.update(id, createLogicFlowDto);
     }
 
-    @Delete(':id')
-    remove(@Param('id') id: string) {
+    @Post('remove')
+    remove(@Body('id') id: number) {
         return this.logicFlowService.remove(+id);
     }
 }
