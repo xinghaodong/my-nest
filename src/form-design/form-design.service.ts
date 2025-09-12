@@ -55,6 +55,10 @@ export class FormDesignService {
         return { data: data, total };
     }
 
+    async findAllNoPage(): Promise<FormDesign[]> {
+        return await this.logicFlowRepository.find();
+    }
+
     async findOne(id: number): Promise<FormDesign> {
         const formDesign = await this.logicFlowRepository.findOneBy({ id });
         return formDesign;

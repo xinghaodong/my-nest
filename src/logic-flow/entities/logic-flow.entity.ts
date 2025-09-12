@@ -21,6 +21,10 @@ export class LogicFlow {
     @Column()
     status: string;
 
+    // 关联表单ID
+    @Column({ type: 'bigint', nullable: true })
+    formId?: number;
+
     @CreateDateColumn({ type: 'timestamp' })
     created_at: Date;
 

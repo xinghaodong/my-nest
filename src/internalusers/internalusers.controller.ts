@@ -14,6 +14,13 @@ export class InternalusersController {
     async findAll(@Query('page') page: number, @Query('pageSize') pageSize: number, @Query('search') search: string) {
         return this.internalusersService.findAll(page, pageSize);
     }
+
+    // 查询全部用户不分页
+    @Get('findAll')
+    async findAllNoPage() {
+        return this.internalusersService.findAllNoPage();
+    }
+
     // 新增用户
     @Post('add')
     async create(@Body() createInternaluserDto: CreateInternaluserDto): Promise<InternalUser> {

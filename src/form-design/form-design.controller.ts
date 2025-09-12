@@ -17,6 +17,11 @@ export class FormDesignController {
         return this.formDesignService.findAll(page, pageSize);
     }
 
+    @Get('findAll')
+    findAllNoPage() {
+        return this.formDesignService.findAllNoPage();
+    }
+
     @Get('detail')
     findOne(@Query('id') id: number) {
         return this.formDesignService.findOne(+id);

@@ -100,6 +100,12 @@ export class InternalusersService {
         const formattedData = data.map(formatUser);
         return { data: data, total };
     }
+
+    async findAllNoPage(): Promise<InternalUser[]> {
+        const users = await this.usersRepository.find();
+        return plainToInstance(InternalUser, users);
+    }
+
     /**
      * 创建内部用户
      * 此函数负责处理内部用户的创建逻辑，包括验证邮箱、关联文件和角色、密码加密等步骤
