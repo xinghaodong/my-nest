@@ -33,16 +33,19 @@ export class LogicFlowController {
         return this.logicFlowService.remove(+id);
     }
 
-    // 新增：启动审批流程
+    // 保存发起的审批流程
     @Post('startWorkflow')
     startWorkflow(@Body() body: { formId: number; formData: Record<string, any>; userId?: number }) {
-        console.log('body', body.formId,body.formData,body.userId);
+        console.log('body', body.formId, body.formData, body.userId);
         const { formId, formData, userId } = body;
-        console.log('formId', formId,formData,userId);
+        console.log('formId', formId, formData, userId);
         if (!formId || !formData) throw new BadRequestException('表单 ID 和数据不能为空');
         return this.logicFlowService.startWorkflow(formId, formData, userId);
     }
 
-
-    
+    // 获取自己的审批列表(查看自己发起的流程记录)
+    @Get('getMyInstances')
+    getMyInstances(@Query('userId') userId: number, @Query('page') page: number, @Query('pageSize') pageSize: number) {
+        return this.logicFlowService.getMyInstances(userId, page, pageSize);
+    }
 }

@@ -57,7 +57,6 @@ export class LogicFlowService {
     }
 
     // 发起审批
-    // 新增：启动审批流程
     async startWorkflow(formId: number, formData: Record<string, any>, userId: number = 45) {
         const form = await this.formRepo.findOne({ where: { id: formId } });
         if (!form) throw new BadRequestException('表单不存在');
@@ -85,5 +84,15 @@ export class LogicFlowService {
         await this.instanceRepo.save(instance);
 
         return { instanceId: instance.id, workflowName: workflow.name };
+    }
+
+    // 获取我的审批流程数据
+    async getMyInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: ApprovalInstance[]; total: number }> {
+        const [data, total] = await this.instanceRepo.findAndCount({
+            where: { applicantId: userId },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+        });
+        return { data: data, total };
     }
 }
