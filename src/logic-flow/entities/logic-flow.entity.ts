@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { ApprovalInstance } from './approval-instance.entity';
 
 @Entity()
 export class LogicFlow {
@@ -30,4 +31,7 @@ export class LogicFlow {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
+
+    @OneToMany(() => ApprovalInstance, instance => instance.workflow) // 一对多
+    instances: ApprovalInstance[]; // 关联的审批实例
 }

@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { ApprovalInstance } from '@/src/logic-flow/entities/approval-instance.entity';
+import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity()
 export class FormDesign {
@@ -26,4 +27,7 @@ export class FormDesign {
 
     @UpdateDateColumn({ type: 'timestamp' })
     updated_at: Date;
+
+    @OneToMany(() => ApprovalInstance, instance => instance.form) // 添加这一行
+    instances: ApprovalInstance[]; // 关联的审批实例
 }
