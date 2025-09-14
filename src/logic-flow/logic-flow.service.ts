@@ -139,11 +139,11 @@ export class LogicFlowService {
     }
 
     // 处理审批(同意、拒绝)
-    async approve(instanceId: number, userId: number, status: number, comment: string) {
-        // instanceId 主键id userId 当前用户id  status  2=通过, 3=拒绝, comment 批注
+    async approve(id: number, userId: number, status: number, comment: string) {
+        // id 主键id userId 当前用户id  status  2=通过, 3=拒绝, comment 批注
 
         const instance = await this.instanceRepo.findOne({
-            where: { id: instanceId },
+            where: { id: id },
             relations: ['workflow'], // 加载 workflow.graphData
         });
 

@@ -57,9 +57,9 @@ export class LogicFlowController {
 
     // 处理审批
     @Post('approve')
-    approve(@Body() body: { instanceId: number; userId: number; status: number; comment?: string }) {
-        const { instanceId, userId, status, comment } = body;
-        return this.logicFlowService.approve(instanceId, userId, status, comment);
+    approve(@Body() body: { id: number; userId: number; status: number; comment?: string }) {
+        const { id, userId, status, comment } = body;
+        return this.logicFlowService.approve(id, userId, status, comment);
     }
 
 }
