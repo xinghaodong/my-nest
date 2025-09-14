@@ -48,4 +48,18 @@ export class LogicFlowController {
     getMyInstances(@Query('userId') userId: number, @Query('page') page: number, @Query('pageSize') pageSize: number) {
         return this.logicFlowService.getMyInstances(userId, page, pageSize);
     }
+
+    // 我的待办任务列表
+    @Get('getMyTodoInstances')
+    getMyTodoInstances(@Query('userId') userId: number, @Query('page') page: number, @Query('pageSize') pageSize: number) {
+        return this.logicFlowService.getMyTodoInstances(userId, page, pageSize);
+    }
+
+    // 处理审批
+    @Post('approve')
+    approve(@Body() body: { instanceId: number; userId: number; status: number; comment?: string }) {
+        const { instanceId, userId, status, comment } = body;
+        return this.logicFlowService.approve(instanceId, userId, status, comment);
+    }
+
 }

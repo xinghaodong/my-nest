@@ -5,9 +5,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LogicFlow } from './entities/logic-flow.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { FormDesign } from '../form-design/entities/form-design.entity';
+import { InternalusersModule } from '../internalusers/internalusers.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([LogicFlow,ApprovalInstance,FormDesign])],
+    imports: [TypeOrmModule.forFeature([LogicFlow,ApprovalInstance,FormDesign]),InternalusersModule],
     controllers: [LogicFlowController],
     providers: [LogicFlowService],
     exports: [LogicFlowService],
