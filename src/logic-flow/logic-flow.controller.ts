@@ -36,9 +36,7 @@ export class LogicFlowController {
     // 保存发起的审批流程
     @Post('startWorkflow')
     startWorkflow(@Body() body: { formId: number; formData: Record<string, any>; userId?: number }) {
-        console.log('body', body.formId, body.formData, body.userId);
         const { formId, formData, userId } = body;
-        console.log('formId', formId, formData, userId);
         if (!formId || !formData) throw new BadRequestException('表单 ID 和数据不能为空');
         return this.logicFlowService.startWorkflow(formId, formData, userId);
     }
@@ -56,10 +54,25 @@ export class LogicFlowController {
     }
 
     // 处理审批
+    /***
+     * @param id: 审批实例 ID
+     * @param userId: 审批人 ID
+     * @param status: 审批状态
+     * @param comment: 审批意见
+     */
     @Post('approve')
     approve(@Body() body: { id: number; userId: number; status: number; comment?: string }) {
         const { id, userId, status, comment } = body;
         return this.logicFlowService.approve(id, userId, status, comment);
     }
 
+    /**
+     * 查询审批历史审批记录
+     * @param id: 审批实例 ID
+     */
+    @Get('getApprovalHistory')
+    getApprovalHistory(@Query('id') id: string) {
+        console.log('getApprovalHistory', id);
+        return this.logicFlowService.getApprovalHistory(+id);
+    }
 }
