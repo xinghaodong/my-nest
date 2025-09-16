@@ -61,7 +61,7 @@ export class LogicFlowController {
      * @param comment: 审批意见
      */
     @Post('approve')
-    approve(@Body() body: { id: number; userId: number; status: number; comment?: string }) {
+    approve(@Body() body: { id: number; userId: number; status: string; comment?: string }) {
         const { id, userId, status, comment } = body;
         return this.logicFlowService.approve(id, userId, status, comment);
     }

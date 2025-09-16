@@ -14,8 +14,8 @@ export class ApprovalInstance {
     @Column({ type: 'json', nullable: true })
     formData: Record<string, any>; // { startDate: "2025-09-15", days: "1.0", ... }
 
-    @Column({ type: 'int', default: 1 }) // 1=待审批, 2=通过, 3=拒绝, 4=退回
-    status: number;
+    @Column({ default: '1' }) // 1=待审批, 2=通过, 3=拒绝
+    status: string;
 
     @Column({ length: 255, nullable: true })
     currentNodeId: string; // 当前节点 ID

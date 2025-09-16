@@ -75,7 +75,7 @@ export class LogicFlowService {
         const pathNodes = this.buildExecutionPath(graphData, instance.formData);
 
         // 2. 只保留我们需要显示的节点（排除 diamond 条件节点）
-        const steps = pathNodes
+        let steps = pathNodes
             .filter(node => node.type === 'rect' || node.text?.value === '开始' || node.text?.value === '结束')
             .map(node => {
                 // 匹配审批历史：
@@ -89,12 +89,23 @@ export class LogicFlowService {
                     type: node.type,
                     assignee: node.properties?.assignee,
                     // status: history 有就用历史；否则如果是当前节点则 1（审批中），否则 0（未开始）
-                    status: history ? history.status : node.id === instance.currentNodeId ? 1 : 0, // 0=未开始,1=审批中,2=通过,3=拒绝
+                    status: history ? history.status : node.id === instance.currentNodeId ? '1' : '', // 1=审批中,没下个节点就设置成2
                     userName: history?.userName || node.properties?.assigneeName || null,
                     approvedAt: history ? history.approvedAt : null,
                     comment: history ? history.comment : null,
                 };
             });
+        // 判断倒数第二个节点如果是通过的 2 就把最后一个结束节点设置成2完成
+        if (steps[steps.length - 1]?.type === 'circle' && steps[steps.length - 1]?.title == '结束') {
+            // 使用 some 检查是否存在 status 为 '3' 的节点
+            const hasRejectedNode = steps.some(step => step.status == '3');
+            if (hasRejectedNode) {
+                // 如果存在 status 为 '3' 的节点，将最后一个节点设置为 '3'
+                steps[steps.length - 1].status = '3';
+            } else if (steps[steps.length - 2]?.status == '2') {
+                steps[steps.length - 1].status = '2';
+            }
+        }
 
         return {
             instanceId: instance.id,
@@ -129,7 +140,6 @@ export class LogicFlowService {
         while (currentNodeId && safety < 200) {
             safety++;
             if (visited.has(currentNodeId)) {
-                console.warn(`buildExecutionPath: detected loop at ${currentNodeId}, break`);
                 break;
             }
             visited.add(currentNodeId);
@@ -155,7 +165,6 @@ export class LogicFlowService {
                 if (!branchEdge) {
                     // 兜底：如果没有标注“是/否”的 edge，则取第一个（
                     branchEdge = outgoing[0];
-                    console.warn(`buildExecutionPath: diamond ${currentNodeId} no matching labeled branch, fallback to first edge`);
                 }
                 currentNodeId = branchEdge.targetNodeId;
                 continue;
@@ -203,7 +212,7 @@ export class LogicFlowService {
         const instance = this.instanceRepo.create({
             title,
             formData,
-            status: 1, // 待审批
+            status: '1', // 待审批
             currentNodeId: nextNodeInfo.id,
             applicantId: userId,
             userName: userName.name,
@@ -232,7 +241,7 @@ export class LogicFlowService {
     async getMyTodoInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: ApprovalInstance[]; total: number }> {
         const [data, total] = await this.instanceRepo.findAndCount({
             where: {
-                status: 1, // 待审批
+                status: '1', // 待审批
                 currentApproverId: userId, // 我是当前审批人
             },
             relations: ['form', 'workflow'],
@@ -244,7 +253,7 @@ export class LogicFlowService {
     }
 
     // 处理审批(同意、拒绝)
-    async approve(id: number, userId: number, status: number, comment: string) {
+    async approve(id: number, userId: number, status: string, comment: string) {
         const instance = await this.instanceRepo.findOne({
             where: { id },
             relations: ['workflow'],
@@ -252,7 +261,7 @@ export class LogicFlowService {
 
         if (!instance) throw new BadRequestException('流程实例不存在');
         if (instance.currentApproverId != userId) throw new BadRequestException('你不是该审批任务的当前审批人');
-        if (instance.status != 1) throw new BadRequestException('该任务已处理，不可重复操作');
+        if (instance.status != '1') throw new BadRequestException('该任务已处理，不可重复操作');
 
         const graphData = instance.workflow.graphData;
         const currentNodeId = instance.currentNodeId;
@@ -274,24 +283,24 @@ export class LogicFlowService {
             approvedAt: this.formatDate(new Date()),
         });
 
-        if (status == 3) {
+        if (status == '3') {
             // 拒绝：流程结束
-            instance.status = 3;
+            instance.status = '3';
             instance.currentNodeId = null;
             instance.currentApproverId = null;
-        } else if (status == 2) {
+        } else if (status == '2') {
             // 同意：查找下一个审批节点
             try {
                 const nextNodeInfo = this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData);
                 console.log('找到下一个节点', nextNodeInfo);
 
                 if (nextNodeInfo) {
-                    instance.status = 1;
+                    instance.status = '1';
                     instance.currentNodeId = nextNodeInfo.id;
                     instance.currentApproverId = nextNodeInfo.assignee;
                 } else {
                     console.log('流程结束，通过');
-                    instance.status = 2;
+                    instance.status = '2';
                     instance.currentNodeId = null;
                     instance.currentApproverId = null;
                 }
