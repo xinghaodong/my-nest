@@ -62,6 +62,7 @@ export class LogicFlowController {
      */
     @Post('approve')
     approve(@Body() body: { id: number; userId: number; status: string; comment?: string }) {
+        console.log('approve', body);
         const { id, userId, status, comment } = body;
         return this.logicFlowService.approve(id, userId, status, comment);
     }

@@ -26,6 +26,7 @@ export class InternalUser {
     // 邮箱
     @Column()
     @IsEmail() // 验证格式是否为有效 email
+    @Exclude()
     email: string;
 
     // 主题

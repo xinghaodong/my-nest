@@ -18,8 +18,8 @@ export class FormDesignController {
     }
 
     @Get('findAll')
-    findAllNoPage() {
-        return this.formDesignService.findAllNoPage();
+    findAllNoPage(@Query('status') status?: string) {
+        return this.formDesignService.findAllNoPage(status);
     }
 
     @Get('detail')

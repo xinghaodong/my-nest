@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Injectable, Query } from '@nestjs/common';
 import { CreateFormDesignDto } from './dto/create-form-design.dto';
 import { UpdateFormDesignDto } from './dto/update-form-design.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -55,8 +55,12 @@ export class FormDesignService {
         return { data: data, total };
     }
 
-    async findAllNoPage(): Promise<FormDesign[]> {
-        return await this.logicFlowRepository.find();
+    async findAllNoPage(status?: string): Promise<FormDesign[]> {
+        const where: any = {}; // 动态查询条件
+        if (status) where.status = status;
+        return await this.logicFlowRepository.find({
+            where,
+        });
     }
 
     async findOne(id: number): Promise<FormDesign> {

@@ -66,7 +66,7 @@ export class LogicFlowService {
             relations: ['form', 'workflow'],
         });
         if (!instance) throw new BadRequestException('流程实例不存在');
-
+        console.log(instance);
         const graphData = instance.workflow.graphData;
         const nodes = graphData.nodes || [];
         const edges = graphData.edges || [];
@@ -184,6 +184,7 @@ export class LogicFlowService {
 
     // 发起审批
     async startWorkflow(formId: number, formData: Record<string, any>, userId: number) {
+        console.log('startWorkflow', formId, formData, userId);
         const form = await this.formRepo.findOne({ where: { id: formId } });
         if (!form) throw new BadRequestException('表单不存在');
 
@@ -193,6 +194,9 @@ export class LogicFlowService {
         const graphData = workflow.graphData;
         const startNode = (graphData.nodes || []).find(node => node.type === 'circle' && node.text?.value === '开始');
         if (!startNode) throw new BadRequestException('流程起始节点缺失');
+
+        const endtNode = (graphData.nodes || []).find(node => node.type === 'circle' && node.text?.value === '结束');
+        if (!endtNode) throw new BadRequestException('流程结束节点缺失');
 
         // 递归查找第一个审批节点
         const nextNodeInfo = this.traverseToNextApprovalNode(graphData, startNode.id, formData);
@@ -367,7 +371,7 @@ export class LogicFlowService {
     // 辅助函数：评估条件表达式
     private evaluateCondition(condition: string, formData: Record<string, any>): boolean {
         if (!condition) throw new BadRequestException('条件表达式缺失');
-
+        console.log('condition:', condition, formData);
         let expr = condition;
         for (const key in formData) {
             let value = formData[key];

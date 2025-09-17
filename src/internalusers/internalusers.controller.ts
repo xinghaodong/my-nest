@@ -46,4 +46,11 @@ export class InternalusersController {
     updateTheme(@Body('id', new ParseIntPipe()) id: number, @Body('theme') theme: string) {
         return this.internalusersService.updateTheme(id, theme);
     }
+
+    // 根据 token 获取用户信息
+    @Get('getUserInfo')
+    async getUserInfo(@Req() req: any) {
+        const id = req.user.userId;
+        return await this.internalusersService.findOneAllToken(id);
+    }
 }

@@ -245,4 +245,12 @@ export class InternalusersService {
         });
         return ret.theme;
     }
+
+    async findOneAllToken(id: number): Promise<InternalUser> {
+        console.log('id', id);
+        const user = await this.usersRepository.findOne({ where: { id } });
+        const data = plainToInstance(InternalUser, user);
+        if (!data) throw new HttpException('未找到', 404);
+        return data;
+    }
 }
