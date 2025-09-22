@@ -1,4 +1,4 @@
-import { HttpException, Injectable, Query } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Query } from '@nestjs/common';
 import { CreateFormDesignDto } from './dto/create-form-design.dto';
 import { UpdateFormDesignDto } from './dto/update-form-design.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -83,9 +83,17 @@ export class FormDesignService {
     }
 
     async remove(id: number) {
-        const result = await this.logicFlowRepository.delete(id);
-        if (result.affected === 0) {
-            throw new HttpException('没找到流程', 404);
+        // 根据id 查询是否存在，并且是启用状态的时候不能删除
+        const formDesign = await this.logicFlowRepository.findOneBy({ id });
+        if (!formDesign) {
+            throw new BadRequestException('未找到表单设计');
         }
+        if (formDesign.status == '1') {
+            throw new BadRequestException('启用状态的表单不能删除');
+        }
+        await this.logicFlowRepository.delete(id);
+        // if (result.affected === 0) {
+        //     throw new HttpException('没找到流程', 404);
+        // }
     }
 }

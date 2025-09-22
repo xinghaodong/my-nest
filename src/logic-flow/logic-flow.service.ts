@@ -23,8 +23,23 @@ export class LogicFlowService {
     ) {}
 
     async create(createLogicFlowDto: CreateLogicFlowDto): Promise<LogicFlow> {
+        // 判断 createLogicFlowDto.graphData.nodes 最后一个节点是结束节点必须是圆形并且文字是结束
+        const nodes = createLogicFlowDto.graphData.nodes;
+        if (nodes[nodes.length - 1].type !== 'circle' || nodes[nodes.length - 1].text.value !== '结束') {
+            throw new BadRequestException('流程图错误，请检查结束节点');
+        }
+        // 判断开始节点
+        if (nodes[0].type !== 'circle' || nodes[0].text.value !== '开始') {
+            throw new BadRequestException('流程图错误，请检查开始节点');
+        }
+        // 在判断如果是审批节点 type == rect 那么必须要有审批人
+        for (let index = 0; index < nodes.length; index++) {
+            const element = nodes[index];
+            if (element.type === 'rect' && !element.properties?.assignee) {
+                throw new BadRequestException(`流程图错误，第${index}个审批节点未配置审批人`);
+            }
+        }
         const logicFlow = this.logicFlowRepository.create(createLogicFlowDto);
-        console.log(logicFlow, 'logicFlow');
         return await this.logicFlowRepository.save(logicFlow);
     }
 
