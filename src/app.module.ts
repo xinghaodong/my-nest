@@ -23,6 +23,7 @@ import { CesiumModule } from './cesium/cesium.module';
 import { VideoModule } from './video/video.module';
 import { LogicFlowModule } from './logic-flow/logic-flow.module';
 import { FormDesignModule } from './form-design/form-design.module';
+import { FundEstimateModule } from './fund-estimate/fund-estimate.module';
 
 @Module({
     imports: [
@@ -70,6 +71,7 @@ import { FormDesignModule } from './form-design/form-design.module';
         VideoModule,
         LogicFlowModule,
         FormDesignModule,
+        FundEstimateModule,
     ],
     controllers: [AppController],
     providers: [AppService],
