@@ -72,11 +72,33 @@ export class FundEstimateService {
                     name: item.name,
                     success: false,
                     error: result.reason?.message || '服务异常',
-                    fundChangePct: '比对失败可能包含了除了美股、港股、A股的基金',
+                    fundChangePct: '比对失败',
                     data: null,
                 };
             }
         });
+    }
+
+    mergeArrays(arrayA, arrayB, key2, key) {
+        // 构建一个以 symbol 为 key 的 map，便于快速查找
+        const symbolMap = new Map();
+        arrayA.forEach(item => {
+            symbolMap.set(item[key2], item);
+        });
+
+        // 以 arrayB 为主进行合并
+        const merged = arrayB.map(bItem => {
+            const matchedA = symbolMap.get(bItem[key]);
+            if (matchedA) {
+                // 合并：以 A 的字段为主，但保留 B 的字段（比如 rawName 等其实一样，但以防万一）
+                return { ...bItem, ...matchedA };
+            } else {
+                // 没有匹配项，保留 B 的内容，可选：补充缺失字段为 null/undefined
+                return { ...bItem };
+            }
+        });
+        console.log('合并后的数据', merged);
+        return merged;
     }
 
     // 查询某一基金的持仓
@@ -112,7 +134,7 @@ export class FundEstimateService {
                 })
                 .first();
             const headers: string[] = [];
-            const datas: Array<{ rawName: string; codeName: string; rawWeight: string; weightPct: number }> = [];
+            const datas = [];
             // 读取表头以确定列索引
             table.find('thead tr th').each((i, th) => {
                 headers.push($(th).text().trim());
@@ -131,6 +153,8 @@ export class FundEstimateService {
                 // console.log(headerText, 'headerText', headers);
                 const rawCode = cols[0] || '';
                 const rawName = cols[1] || '';
+                const rawNames = cols[2] || '';
+                console.log(rawNames, 'rawNames');
                 let weightIdx = headerText.indexOf('占净值') >= 0 ? headers.findIndex(h => h.includes('占净值')) : headers.findIndex(h => h.includes('占净值比例'));
 
                 if (weightIdx < 0) weightIdx = cols.length - 1;
@@ -141,13 +165,15 @@ export class FundEstimateService {
                 datas.push({
                     codeName: rawCode,
                     rawName: rawName,
+                    rawNames: rawNames,
                     rawWeight: rawWeight,
                     weightPct: weightPct,
                 });
             });
+            console.log(datas, 'datas');
             let parsed = codeList.map((item, index) => {
                 // console.log(item, 'item');
-                codeList.push(item);
+                // codeList.push(item);
                 const [marketPrefix, symbol] = item.split('.');
                 let market: string;
                 if (!marketPrefix || !symbol) {
@@ -168,28 +194,36 @@ export class FundEstimateService {
                     symbol,
                     market,
                     code: item,
-                    ...datas[index],
                     fundChangePct: '',
                 };
             });
+            //symbol
+            // 合并两个数组
+
+            parsed = this.mergeArrays(parsed, datas, 'symbol', 'rawName');
+
+            console.log(rows, datas, 'datas', codeList, parsed);
 
             // console.log(parsed.length, 'parsed', rows.length);
             // console.log(parsed.length, 'parsed');
             // console.log(rows.length);
             // console.log(parsed, 'parsed');
-            if (parsed.length != rows.length) {
-                throw new BadRequestException('比对失败');
-            }
+            // if (parsed.length != rows.length) {
+            //     throw new BadRequestException('比对失败');
+            // }
             // console.log(parsed, 'parsed');
             // 便利 parsed 提取出拼接所有的code 字段为字符串
             const codes = parsed.map(item => item.code).join(',');
             const stockInfo = await this.getStockInfo(codes);
-            parsed = parsed.map((item, index) => {
-                return {
-                    ...item,
-                    ...stockInfo.diff[index],
-                };
-            });
+            console.log(stockInfo, 'stockInfo');
+            parsed = this.mergeArrays(stockInfo.diff, parsed, 'f12', 'rawName');
+            // parsed = parsed.map((item, index) => {
+            //     return {
+            //         ...item,
+            //         ...stockInfo.diff[index],
+            //     };
+            // });
+            console.log(parsed, 'parsed');
             // 删除parsed后边9 项
             // parsed = parsed.slice(0, -9);
             // console.log(parsed, 'parsed');
@@ -197,9 +231,9 @@ export class FundEstimateService {
             //  计算基金整体涨跌幅（加权平均）
             // -----------------------------
             // weightPct 是占净值比例9.82 f3是涨跌幅 220 需要 *0.01
-            const totalWeight = parsed.reduce((sum, item) => sum + (item.weightPct || 0), 0);
+            const totalWeight = parsed.reduce((sum, item) => sum + ((item as any).weightPct || 0), 0);
             const weightedSum = parsed.reduce((sum, item) => {
-                const weight = item.weightPct || 0; // 9.82
+                const weight = (item as any).weightPct || 0; // 9.82
                 const changePct = ((item as any).f3 || 0) / 100; // 220 -> 2.20
                 return sum + weight * changePct; // 9.82 * 2.2 = 21.604
             }, 0);
