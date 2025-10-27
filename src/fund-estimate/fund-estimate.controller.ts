@@ -53,7 +53,6 @@ export class FundEstimateController {
         //         name: '银华海外数字经济量化选股混合',
         //     },
         // ];
-        // ids = ['017436', '017730', '539002', '016701'];
         return this.fundEstimateService.findAll();
     }
 
