@@ -3,7 +3,6 @@ import { InternalusersService } from './internalusers.service';
 import { InternalusersController } from './internalusers.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { InternalUser } from './entities/internaluser.entity';
-import { FilelistModule } from '../filelist/filelist.module';
 import { Role } from 'src/role/entities/role.entity';
 import { OrgManagementModule } from '../systemSetting/org-management/org-management.module';
 

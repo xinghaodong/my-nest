@@ -20,7 +20,6 @@ export class CreateCesiumDto {
 
     @IsNotEmpty()
     trackmileage: string;
-    
 
     @Transform(({ value }) => (value ? new Date(value).toLocaleString() : null))
     created_at?: Date;
@@ -41,5 +40,5 @@ export class CreateWaypointDto {
     longitude: number;
 
     @IsNumber()
-    height:number;
+    height: number;
 }

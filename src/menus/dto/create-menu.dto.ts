@@ -56,5 +56,4 @@ export class CreateMenuDto {
     // 是否全屏
     @IsOptional()
     isscreen?: string;
-
 }

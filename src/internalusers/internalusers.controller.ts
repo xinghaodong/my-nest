@@ -1,9 +1,8 @@
-import { Controller, Get, Post, Body, Query, Req, Res, HttpException, ParseIntPipe, UploadedFile, UseInterceptors, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req, ParseIntPipe } from '@nestjs/common';
 import { InternalusersService } from './internalusers.service';
 import { CreateInternaluserDto } from './dto/create-internaluser.dto';
 import { UpdateInternaluserDto } from './dto/update-internaluser.dto';
 import { InternalUser } from './entities/internaluser.entity';
-import { JwtAuthGuard } from '../auth/jwt.auth.guard';
 
 @Controller('internalusers')
 export class InternalusersController {
@@ -11,7 +10,7 @@ export class InternalusersController {
     // 查询用户
     // @UseGuards(JwtAuthGuard)
     @Get('find')
-    async findAll(@Query('page') page: number, @Query('pageSize') pageSize: number, @Query('search') search: string) {
+    async findAll(@Query('page') page: number, @Query('pageSize') pageSize: number) {
         return this.internalusersService.findAll(page, pageSize);
     }
 

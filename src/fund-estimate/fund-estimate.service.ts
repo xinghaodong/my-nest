@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateFundEstimateDto } from './dto/create-fund-estimate.dto';
-import { UpdateFundEstimateDto } from './dto/update-fund-estimate.dto';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -34,7 +33,7 @@ export class FundEstimateService {
         }
 
         // 方式一：使用 save（自动处理 ID、时间戳等，但较慢）
-        console.log('开始批量创建基金', dtos);
+        // console.log('开始批量创建基金', dtos);
         const entities = dtos.map(dto => this.fundEstimateRepository.create(dto));
         return await this.fundEstimateRepository.save(entities, { chunk: 100 }); // 分块避免内存溢出
         // 方式二：使用 insert（更快，但不触发监听器，且返回不带 ID）
@@ -46,12 +45,17 @@ export class FundEstimateService {
     async findAll() {
         // 查询全部的数据
         const qdata = await this.fundEstimateRepository.find();
-        console.log('qdata', qdata);
+        // console.log('qdata', qdata);
         // 去重（可选）
         const uniqueIds = [...new Set(qdata)];
-        console.log('去重后的数据', uniqueIds);
+        // console.log('去重后的数据', uniqueIds);
         // 并发调用 findOne
         const results = await Promise.allSettled(uniqueIds.map(item => this.findOne(item.code)));
+        // console.log('结果', results);
+        // 如果结果存在哪怕一个 status === rejected 的就抛出异常
+        if (results.some(result => result.status === 'rejected')) {
+            throw new BadRequestException('请检查网络');
+        }
         // const results = [];
         // 格式化结果：成功返回数据，失败返回错误信息
         return results.map((result, index) => {
@@ -62,16 +66,16 @@ export class FundEstimateService {
                     id: item.id,
                     success: true,
                     data: result.value,
-                    fundChangePct: result.value[index].fundChangePct,
+                    fundChangePct: Array.isArray(result.value) && result.value.length > 0 ? result.value[0].fundChangePct || '0' : '0',
                     name: item.name,
                 };
             } else {
-                console.error(`基金 ${item.id} 查询失败:`, result.reason?.message || result.reason);
+                // console.error(`基金 ${item.id} 查询失败:`, result.reason?.message || result.reason);
                 return {
                     id: item.id,
                     name: item.name,
                     success: false,
-                    error: result.reason?.message || '服务异常',
+                    error: result.reason?.message || '服务异常.',
                     fundChangePct: '比对失败',
                     data: null,
                 };
@@ -79,7 +83,7 @@ export class FundEstimateService {
         });
     }
 
-    mergeArrays(arrayA, arrayB, key2, key) {
+    mergeArrays(arrayA: any[], arrayB: any[], key2: string, key: string) {
         // 构建一个以 symbol 为 key 的 map，便于快速查找
         const symbolMap = new Map();
         arrayA.forEach(item => {
@@ -97,13 +101,13 @@ export class FundEstimateService {
                 return { ...bItem };
             }
         });
-        console.log('合并后的数据', merged);
+        // console.log('合并后的数据', merged);
         return merged;
     }
 
     // 查询某一基金的持仓
     async findOne(id: any) {
-        console.log(id, 'id');
+        // console.log(id, 'id');
         // console.log(id, 'id');
         // id 基金编号，topline 显示基金持有多少股票，
         const url = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${id}&topline=100&year=&month=`;
@@ -112,15 +116,15 @@ export class FundEstimateService {
 
             const $ = cheerio.load(res.data);
             // console.log($('#gpdmList').text().split(','), 'cheerio');
-            let codeList = $('#gpdmList').text().split(',');
+            const codeList = $('#gpdmList').text().split(',');
             // 删除掉 codeList 的最后一项
-            console.log(codeList, 'codeList');
+            // console.log(codeList, 'codeList');
             codeList.pop();
 
             // 构建 rawCode -> fullCode 映射
             const codeMap = new Map<string, string>();
             codeList.forEach(fullCode => {
-                const [prefix, symbol] = fullCode.split('.');
+                const [symbol] = fullCode.split('.');
                 if (symbol) {
                     codeMap.set(symbol, fullCode);
                 }
@@ -154,7 +158,7 @@ export class FundEstimateService {
                 const rawCode = cols[0] || '';
                 const rawName = cols[1] || '';
                 const rawNames = cols[2] || '';
-                console.log(rawNames, 'rawNames');
+                // console.log(rawNames, 'rawNames');
                 let weightIdx = headerText.indexOf('占净值') >= 0 ? headers.findIndex(h => h.includes('占净值')) : headers.findIndex(h => h.includes('占净值比例'));
 
                 if (weightIdx < 0) weightIdx = cols.length - 1;
@@ -170,8 +174,8 @@ export class FundEstimateService {
                     weightPct: weightPct,
                 });
             });
-            console.log(datas, 'datas');
-            let parsed = codeList.map((item, index) => {
+            // console.log(datas, 'datas');
+            let parsed = codeList.map(item => {
                 // console.log(item, 'item');
                 // codeList.push(item);
                 const [marketPrefix, symbol] = item.split('.');
@@ -199,23 +203,10 @@ export class FundEstimateService {
             });
             //symbol
             // 合并两个数组
-
             parsed = this.mergeArrays(parsed, datas, 'symbol', 'rawName');
-
-            console.log(rows, datas, 'datas', codeList, parsed);
-
-            // console.log(parsed.length, 'parsed', rows.length);
-            // console.log(parsed.length, 'parsed');
-            // console.log(rows.length);
-            // console.log(parsed, 'parsed');
-            // if (parsed.length != rows.length) {
-            //     throw new BadRequestException('比对失败');
-            // }
-            // console.log(parsed, 'parsed');
-            // 便利 parsed 提取出拼接所有的code 字段为字符串
             const codes = parsed.map(item => item.code).join(',');
             const stockInfo = await this.getStockInfo(codes);
-            console.log(stockInfo, 'stockInfo');
+            // console.log(stockInfo, 'stockInfo');
             parsed = this.mergeArrays(stockInfo.diff, parsed, 'f12', 'rawName');
             // parsed = parsed.map((item, index) => {
             //     return {
@@ -223,7 +214,7 @@ export class FundEstimateService {
             //         ...stockInfo.diff[index],
             //     };
             // });
-            console.log(parsed, 'parsed');
+            // console.log(parsed, 'parsed');
             // 删除parsed后边9 项
             // parsed = parsed.slice(0, -9);
             // console.log(parsed, 'parsed');
@@ -240,7 +231,7 @@ export class FundEstimateService {
 
             // 加权平均 0.07是汇率先写死
             const fundChangePct = (weightedSum / totalWeight).toFixed(2);
-            console.log(fundChangePct, 'fundChangePct', weightedSum, totalWeight);
+            // console.log(fundChangePct, 'fundChangePct', weightedSum, totalWeight);
             // console.log(parsed, 'parsed', codes);
             // console.log(stockInfo, 'stockInfo');
             // return stockInfo;
@@ -258,6 +249,7 @@ export class FundEstimateService {
     }
     // 根据 查询出来的基金codes 集合获取股票信息
     async getStockInfo(codes: string) {
+        console.log(codes, 'codes');
         const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f2,f3,f12,f14,f9&secids=${codes}`;
 
         try {
@@ -266,12 +258,12 @@ export class FundEstimateService {
             // console.log(res.data, 'res.data');
             // console.log(res.data.data, 'res.data.data');
             return res.data.data;
-        } catch (error) {
+        } catch {
             throw new BadRequestException('获取股票信息失败');
         }
     }
 
-    update(id: number, updateFundEstimateDto: UpdateFundEstimateDto) {
+    update(id: number) {
         return `This action updates a #${id} fundEstimate`;
     }
 

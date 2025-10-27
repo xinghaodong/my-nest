@@ -58,7 +58,7 @@ export class Menu {
     roles: Role[];
     roleIds: number[];
 
-    // 增加一个字段 是否全屏 isscreen 字符串字段 默认是 1=>否 2=>是 
+    // 增加一个字段 是否全屏 isscreen 字符串字段 默认是 1=>否 2=>是
     @Column({ nullable: true, default: '1' })
     isscreen: string;
 }

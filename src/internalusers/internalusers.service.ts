@@ -1,9 +1,9 @@
-import { Injectable, HttpException, UploadedFile, HttpStatus, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { CreateInternaluserDto } from './dto/create-internaluser.dto';
 import { UpdateInternaluserDto } from './dto/update-internaluser.dto';
 import { InternalUser } from './entities/internaluser.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, FindManyOptions, In } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { FileList } from '../filelist/entities/filelist.entity';
 import { Role } from 'src/role/entities/role.entity';
 import * as bcrypt from 'bcryptjs';
@@ -11,11 +11,6 @@ import { ConfigService } from '@nestjs/config';
 import { OrgManagementService } from '../systemSetting/org-management/org-management.service';
 import { plainToInstance } from 'class-transformer';
 
-function formatUser(user: any) {
-    return {
-        ...user, // 保留用户的所有字段
-    };
-}
 @Injectable()
 export class InternalusersService {
     constructor(
@@ -97,7 +92,6 @@ export class InternalusersService {
         data = plainToInstance(InternalUser, data);
 
         // 使用 formatUser 函数处理每个用户的字段
-        const formattedData = data.map(formatUser);
         return { data: data, total };
     }
 
@@ -113,7 +107,6 @@ export class InternalusersService {
      * @returns 返回 Promise<InternalUser> 类型的 Promise 对象
      */
     async create(user: CreateInternaluserDto): Promise<InternalUser> {
-        const logger = new Logger('InternalusersService');
         try {
             // 检查邮箱是否可用
             await this.checkEmail(user, 0);

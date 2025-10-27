@@ -8,7 +8,7 @@ import { FormDesign } from '../form-design/entities/form-design.entity';
 import { InternalusersModule } from '../internalusers/internalusers.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([LogicFlow,ApprovalInstance,FormDesign]),InternalusersModule],
+    imports: [TypeOrmModule.forFeature([LogicFlow, ApprovalInstance, FormDesign]), InternalusersModule],
     controllers: [LogicFlowController],
     providers: [LogicFlowService],
     exports: [LogicFlowService],

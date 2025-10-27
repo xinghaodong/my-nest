@@ -1,10 +1,8 @@
-import { BadRequestException, HttpException, Injectable, Query } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
 import { CreateFormDesignDto } from './dto/create-form-design.dto';
-import { UpdateFormDesignDto } from './dto/update-form-design.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FormDesign } from './entities/form-design.entity';
 import { Repository } from 'typeorm';
-import { cloneDeep } from 'lodash';
 
 @Injectable()
 export class FormDesignService {
@@ -68,7 +66,7 @@ export class FormDesignService {
         return formDesign;
     }
 
-    update(id: number, updateFormDesignDto: UpdateFormDesignDto) {
+    update(id: number) {
         return `This action updates a #${id} formDesign`;
     }
 

@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseIntPipe } from '@nestjs/common';
 import { FundEstimateService } from './fund-estimate.service';
 import { CreateFundEstimateBatchDto, CreateFundEstimateDto } from './dto/create-fund-estimate.dto';
-import { UpdateFundEstimateDto } from './dto/update-fund-estimate.dto';
 import { Public } from '../common/decorators/public.decorator';
 
 @Public()

@@ -3,7 +3,7 @@ import { FileList } from '../../filelist/entities/filelist.entity';
 import { Role } from '../../role/entities/role.entity';
 import { IsEmail } from 'class-validator';
 import { OrgManagement } from '@/src/systemSetting/org-management/entities/org-management.entity';
-import { Exclude, Expose } from 'class-transformer';
+import { Exclude } from 'class-transformer';
 
 @Entity()
 export class InternalUser {

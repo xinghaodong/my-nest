@@ -88,7 +88,7 @@ export class AiController {
             this.aiService.activeControllers.delete(conversationId); // 从 Map 中删除
             return { message: '流式请求已成功停止' };
         }
-        
+
         return { message: '未找到正在进行的流式请求' };
     }
 }
