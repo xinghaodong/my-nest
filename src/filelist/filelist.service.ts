@@ -15,4 +15,16 @@ export class FilelistService {
     async previewFiles(files: string): Promise<FileList[]> {
         return this.fileListRepository.find();
     }
+
+    async findById(id: number) {
+        try {
+            const file = this.fileListRepository.findOneBy({ id });
+            console.log(file);
+            // const formDesign = await this.logicFlowRepository.findOneBy({ id });
+            console.log(file);
+            return file;
+        } catch (error) {
+            return error;
+        }
+    }
 }

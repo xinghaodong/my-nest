@@ -1,15 +1,25 @@
 import { NestFactory, Reflector } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ResponseInterceptor } from './common/response';
-import { HttpExceptionFilter } from './common/requestFailed';
+import { AppModule } from './app.module.js';
+import { ResponseInterceptor } from './common/response.js';
+import { HttpExceptionFilter } from './common/requestFailed.js';
 import { BadRequestException, HttpException, HttpStatus, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
-import { JwtAuthGuard } from './auth/jwt.auth.guard';
+import { JwtAuthGuard } from './auth/jwt.auth.guard.js';
+import { join } from 'path';
+import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
-    app.setGlobalPrefix('api'); // 设置全局路由前缀为 'api'
+    // 加上泛型 <NestExpressApplication>
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    // 关键就这三行（根据你刚才打印的结果写死即可）
+    const uploadsPath = join(process.cwd(), 'uploads');
+    app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
+    app.useStaticAssets(uploadsPath, { prefix: '/api/uploads' }); // 兼容你服务器
+
+    app.setGlobalPrefix('api');
+    app.setGlobalPrefix('api');
+
     // 配置 Multer
     // const upload = multer({
     //     dest: 'uploads/',

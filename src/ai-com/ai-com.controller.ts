@@ -1,11 +1,19 @@
-import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
 import { ai_testservice } from './ai-com.service';
 import { Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
+import { FilelistService } from '../filelist/filelist.service';
+import { AiComSttService } from './ai-com.stt.service';
+import { AiTtsStreamService } from './ai-tts-stream.service';
 
 @Controller('ai')
 export class AiController {
-    constructor(private readonly aiService: ai_testservice) {}
+    constructor(
+        private readonly aiService: ai_testservice,
+        private readonly filelistService: FilelistService,
+        private readonly AiComSttService: AiComSttService,
+        private readonly aiTtsStreamService: AiTtsStreamService,
+    ) {}
 
     @Public()
     @Get('stream')
@@ -86,9 +94,24 @@ export class AiController {
         if (controller) {
             controller.abort(); // 停止流式请求
             this.aiService.activeControllers.delete(conversationId); // 从 Map 中删除
+            this.aiTtsStreamService.stopTts(conversationId);
             return { message: '流式请求已成功停止' };
         }
 
         return { message: '未找到正在进行的流式请求' };
+    }
+
+    // 前端只传 fileId 或 filePath
+    @Public()
+    @Post('transcribe')
+    async transcribe(@Body('id', new ParseIntPipe()) id: number) {
+        // 查询文件信息
+        console.log('id:', id);
+        const file = await this.filelistService.findById(id);
+        console.log('file:：：：：：：', file);
+        if (!file) throw new Error('文件不存在');
+        // 调用模型识别
+        const text = await this.AiComSttService.transcribe((file as any).filePath);
+        return { text };
     }
 }

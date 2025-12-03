@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, InternalServerErrorException, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileList } from './entities/filelist.entity';
 import { FilelistService } from './filelist.service';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -14,8 +14,10 @@ export class FilelistController {
     @UseInterceptors(FileInterceptor('avatar')) // 直接使用注册好的 Multer 配置
     async uploadFile(@UploadedFile() file: Express.Multer.File) {
         try {
+            if (!file) {
+                throw new BadRequestException('未上传文件');
+            }
             const fileEntity = new FileList();
-            console.log(file, '66');
             fileEntity.fileName = file.filename;
             fileEntity.contentType = file.mimetype;
             fileEntity.fileSize = file.size;
@@ -32,5 +34,11 @@ export class FilelistController {
     @Get('previewFile')
     async previewFile(@Query('files') files: string) {
         return this.filesService.previewFiles(files);
+    }
+    // 根据id获取文件
+    @Public()
+    @Get('getFileById')
+    async getFileById(@Query('id') id: number) {
+        return this.filesService.findById(id);
     }
 }

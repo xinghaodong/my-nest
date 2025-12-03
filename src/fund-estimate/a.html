@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>手写实现Vue的响应式更新</title>
+</head>
+
+<body>
+    <div id="app">
+        <input id="input" type="text">
+        <span id="content"></span>
+    </div>
+</body>
+<script type="text/javascript">
+    let data = {
+        a: 4
+    }
+    Object.defineProperty(data, 'text', {
+        set: function (v) {
+
+            this.value = v	//当我们为data.text赋值时，实际上更改的是this.value，
+            //这里的this.value是我们添加的一个变量，用于保存data.text的内容，
+            //也可以是任意的其他变量，比如this.a = v,效果也是一样的。
+            console.log('set', this.value)
+            document.getElementById('content').innerText = this.value
+        },
+        get: function () {
+            console.log('get', this.value)
+            return this.value 	//当我们获取data.text时，其实也是获取到this.value的值
+        }
+    })
+    setTimeout(function () {
+
+
+        console.log(data.text)
+    }, 2000)
+
+    //所以，如果我们通过相同的方法为data再增加一个name属性，执行data.name=3,修改的也是this.value的值
+    //所以这时候我们获取data.text的值时，得到的也是3。如果希望data的属性有独立的值，我们可以使用闭包，如下：
+    // !function (obj, property, value) {
+
+
+    //   Object.defineProperty(obj, property, {
+
+
+    //     set: function (v) {
+
+
+    //       value = v	//当我们为data.text赋值时，实际上更改的是this.value，
+    //       //这里的this.value是我们添加的一个变量，用于保存data.text的内容，
+    //       //也可以是任意的其他变量，比如this.a = v,效果也是一样的。
+    //       console.log('set', value)
+    //       document.getElementById('content').innerText = value
+    //     },
+    //     get: function () {
+
+
+    //       console.log('get', value)
+    //       return value	//当我们获取data.text时，其实也是获取到this.value的值
+    //     }
+    //   })
+    // } (data, 'text')
+    document.getElementById('input').addEventListener('input', function (e) {
+
+
+        data.text = e.target.value
+    })
+</script>
+
+</html>

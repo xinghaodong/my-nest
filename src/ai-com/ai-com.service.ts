@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import axios from 'axios';
 import ollama from 'ollama';
 import { AbortController } from 'node-abort-controller'; // 注意安装这个包
+import { AiTtsStreamService } from './ai-tts-stream.service';
 /**
  * 本地大模型服务 可以用 node 安装 ollama 也可以自定义客户端访问 直接调用本机的ollama服务
  */
@@ -52,6 +53,7 @@ export class ai_testservice {
         private readonly chatRecordRepository: Repository<ChatRecord>,
         @InjectRepository(Message)
         private readonly messageRepository: Repository<Message>,
+        private readonly aiTtsStreamService: AiTtsStreamService,
     ) {
         this.client = new OpenAI({
             apiKey: process.env.ALIYUN_API_KEY,
@@ -161,7 +163,7 @@ export class ai_testservice {
      */
     /** 本地 Ollama (例如:DeepSeek-R1等开源模型) 处理流式请求（带上下文记忆、联网搜索功能） */
     async callOllamaStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
-        console.log('使用本地 Ollama (DeepSeek-R1) 处理带上下文的请求', prompt);
+        console.log(`使用本地 Ollama (${model}) 处理带上下文的请求`, prompt);
 
         let accumulatedResponse = '';
         try {
@@ -203,7 +205,7 @@ export class ai_testservice {
             const messages = [
                 {
                     role: 'system',
-                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + '\n3. 标注信息出处给出link链接' + searchContext,
+                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + searchContext,
                 },
                 ...conversationHistory,
                 { role: 'user', content: prompt },
@@ -211,18 +213,64 @@ export class ai_testservice {
             // 3. 调用 Ollama 的 chat 接口
             //  'http://localhost:11434/api/chat',
             const completion = await ollama.chat({ model: model, messages, stream: true, signal } as any);
+            let sentenceBuffer = '';
+
             for await (const chunk of completion) {
                 if (signal.aborted) {
-                    // 检查是否已中止
-                    throw new Error('Request Aborted'); // 强制抛出错误
+                    throw new Error('Request Aborted');
                 }
 
-                if (chunk.message) {
+                if (chunk.message?.content) {
+                    console.log('chunk:', chunk);
                     accumulatedResponse += chunk.message.content;
-                    // console.log('chunk', accumulatedResponse);
+                    sentenceBuffer += chunk.message.content;
+                    //  正常文字流
                     res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    // res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    // 只要检测到一句话结尾 → 立刻 TTS 可以加上.
+                    if (sentenceBuffer.match(/[。！？!?]/)) {
+                        console.log('ttsText:', sentenceBuffer);
+                        const ttsText = sentenceBuffer;
+                        sentenceBuffer = '';
+
+                        const audioBase64 = await this.aiTtsStreamService.tts(ttsText);
+
+                        if (audioBase64) {
+                            // res.write(
+                            //     `data: ${JSON.stringify({
+                            //         type: 'audio',
+                            //         audio: audioBase64
+                            //     })}\n\n`,
+                            // );
+                            res.write(
+                                `data: ${JSON.stringify({
+                                    type: 'audio',
+                                    // 加上前缀，明确是 data URL（前端最简单判断）
+                                    audio: `data:audio/mp3;base64,${audioBase64}`,
+                                })}\n\n`,
+                            );
+                        }
+                    }
                 }
             }
+            // for await (const chunk of completion) {
+            //     if (signal.aborted) {
+            //         // 检查是否已中止
+            //         throw new Error('Request Aborted'); // 强制抛出错误
+            //     }
+
+            //     if (chunk.message) {
+            //         console.log('chunk', chunk);
+            //         if ((chunk.message as any).thinking) {
+            //             accumulatedResponse += (chunk.message as any).thinking;
+            //             res.write(`data: ${JSON.stringify({ status: 'thinking', message: accumulatedResponse })}\n\n`);
+            //         } else {
+            //             accumulatedResponse += chunk.message.content;
+            //             // console.log('chunk', accumulatedResponse);
+            //             res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+            //         }
+            //     }
+            // }
             if (accumulatedResponse) {
                 await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
             }

@@ -8,6 +8,26 @@ import { FundEstimate } from './entities/fund-estimate.entity';
 
 @Injectable()
 export class FundEstimateService {
+    private headers: any = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+        Referer: 'https://quote.eastmoney.com/',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br, zstd',
+        'Cache-Control': 'no-cache',
+        connection: 'keep-alive',
+        'Sec-Ch-Ua': '"Google Chrome";v="141", "Not/A)Brand";v="8", "Chromium";v="141"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        Cookie: 'st_nvi=sqTZk-g-VRnpQuprNKZ1y3bb4; qgqp_b_id=af5cce20eeaa6d564690e90f144c5289; nid=07da164c511bc9eb6784dd93043c48df; nid_create_time=1759980972277; gvi=qkQPi06hWa6NEFgq9B34f7c14; gvi_create_time=1759980972277; AUTH_FUND.EASTMONEY.COM_GSJZ=AUTH*TTJJ*TOKEN; st_si=93710146157032; st_asi=delete; EMFUND1=10-20%2010%3A42%3A48@%23%24%u5E7F%u53D1%u6E2F%u80A1%u521B%u65B0%u836FETF%u8054%u63A5%28QDII%29A@%23%24019670; EMFUND2=10-20%2010%3A42%3A47@%23%24%u4E1C%u8D22%u4E0A%u8BC150A@%23%24008240; EMFUND3=10-20%2010%3A42%3A48@%23%24%u5BCC%u56FD%u4E0A%u8BC1%u6307%u6570ETF%u8054%u63A5C@%23%24013286; EMFUND4=10-24%2018%3A21%3A02@%23%24%u5929%u5F18%u4E2D%u8BC1%u98DF%u54C1%u996E%u6599ETF@%23%24159736; EMFUND5=10-24%2018%3A15%3A33@%23%24%u6613%u65B9%u8FBE%u4E2D%u8BC1%u6D77%u5916%u4E92%u8054%u7F5150ETF%u8054%u63A5%28QDII%29A@%23%24006327; EMFUND6=10-27%2011%3A07%3A42@%23%24%u534E%u5B9D%u6D77%u5916%u79D1%u6280%u80A1%u7968%28QDII-LOF%29C@%23%24017204; EMFUND7=10-27%2011%3A20%3A41@%23%24%u4E2D%u6B27%u533B%u7597%u5065%u5EB7%u6DF7%u5408A@%23%24003095; EMFUND8=10-27%2016%3A37%3A23@%23%24%u6C38%u8D62%u79D1%u6280%u667A%u9009%u6DF7%u5408%u53D1%u8D77A@%23%24022364; EMFUND0=10-28%2009%3A32%3A42@%23%24%u62DB%u5546%u4E2D%u8BC1%u767D%u9152%u6307%u6570%28LOF%29A@%23%24161725; EMFUND9=10-28 09:39:20@#$%u534E%u5B9D%u7EB3%u65AF%u8FBE%u514B%u7CBE%u9009%u80A1%u7968%u53D1%u8D77%u5F0F%28QDII%29A@%23%24017436; st_pvi=70723012225516; st_sp=2025-10-09%2011%3A36%3A12; st_inirUrl=https%3A%2F%2Fchat.qwen.ai%2Fc%2F7f8dd940-74e6-48ab-873a-397bae1fdfbf; st_sn=8; st_psi=20251028094729670-112200305283-5653636181',
+        host: 'push2.eastmoney.com',
+        pragma: 'no-cache',
+    };
     constructor(
         @InjectRepository(FundEstimate)
         private fundEstimateRepository: Repository<FundEstimate>,
@@ -52,10 +72,6 @@ export class FundEstimateService {
         // 并发调用 findOne
         const results = await Promise.allSettled(uniqueIds.map(item => this.findOne(item.code)));
         // console.log('结果', results);
-        // 如果结果存在哪怕一个 status === rejected 的就抛出异常
-        if (results.some(result => result.status === 'rejected')) {
-            throw new BadRequestException('请检查网络');
-        }
         // const results = [];
         // 格式化结果：成功返回数据，失败返回错误信息
         return results.map((result, index) => {
@@ -137,11 +153,11 @@ export class FundEstimateService {
                     return txt.includes('股票代码') || txt.includes('占基金净值比例') || txt.includes('占净值比例');
                 })
                 .first();
-            const headers: string[] = [];
+            const headersTite: string[] = [];
             const datas = [];
             // 读取表头以确定列索引
             table.find('thead tr th').each((i, th) => {
-                headers.push($(th).text().trim());
+                headersTite.push($(th).text().trim());
                 return; // 显式返回 void，防止类型推断为 number
             });
 
@@ -153,13 +169,13 @@ export class FundEstimateService {
                     .get();
                 if (!cols || !cols.length) return;
                 // 尝试找到证券代码/简称/占比的列
-                const headerText = headers.join('|').toLowerCase();
+                const headerText = headersTite.join('|').toLowerCase();
                 // console.log(headerText, 'headerText', headers);
                 const rawCode = cols[0] || '';
                 const rawName = cols[1] || '';
                 const rawNames = cols[2] || '';
                 // console.log(rawNames, 'rawNames');
-                let weightIdx = headerText.indexOf('占净值') >= 0 ? headers.findIndex(h => h.includes('占净值')) : headers.findIndex(h => h.includes('占净值比例'));
+                let weightIdx = headerText.indexOf('占净值') >= 0 ? headersTite.findIndex(h => h.includes('占净值')) : headersTite.findIndex(h => h.includes('占净值比例'));
 
                 if (weightIdx < 0) weightIdx = cols.length - 1;
                 const rawWeight = cols[weightIdx] || '';
@@ -247,21 +263,47 @@ export class FundEstimateService {
             throw error;
         }
     }
-    // 根据 查询出来的基金codes 集合获取股票信息
+
     async getStockInfo(codes: string) {
         console.log(codes, 'codes');
-        const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f2,f3,f12,f14,f9&secids=${codes}`;
+        // const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f2,f3,f12,f14,f9&secids=${codes}`;
+        const url = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
+        const params = {
+            fields: 'f2,f3,f12,f14,f9',
+            secids: codes,
+        };
+        // console.log(url, 'url');
 
         try {
-            const res = await axios.get(url);
-
-            // console.log(res.data, 'res.data');
-            // console.log(res.data.data, 'res.data.data');
-            return res.data.data;
-        } catch {
-            throw new BadRequestException('获取股票信息失败');
+            const response = await axios.get(url, { params, headers: this.headers });
+            // console.log('✅ 请求成功:', response.data.data);
+            return response.data.data;
+        } catch (error) {
+            console.error('❌ 请求错误！！:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('❌ Axios 错误:', error.message);
+                console.error('状态码:', error.response?.status);
+                console.error('响应数据:', error.response?.data);
+            } else {
+                console.error('未知错误:', error);
+            }
         }
     }
+    // 根据 查询出来的基金codes 集合获取股票信息
+    // async getStockInfo(codes: string) {
+    //     console.log(codes, 'codes');
+    //     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f2,f3,f12,f14,f9&secids=${codes}`;
+    //     console.log(url, 'url');
+    //     try {
+    //         const res = await axios.get(url);
+
+    //         // console.log(res.data, 'res.data');
+    //         // console.log(res.data.data, 'res.data.data');
+    //         return res.data.data;
+    //     } catch {
+    //         throw new BadRequestException('获取股票信息失败');
+    //     }
+    // }
 
     update(id: number) {
         return `This action updates a #${id} fundEstimate`;
