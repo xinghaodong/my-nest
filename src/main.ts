@@ -1,12 +1,12 @@
 import { NestFactory, Reflector } from '@nestjs/core';
-import { AppModule } from './app.module.js';
-import { ResponseInterceptor } from './common/response.js';
-import { HttpExceptionFilter } from './common/requestFailed.js';
+import { AppModule } from './app.module';
+import { ResponseInterceptor } from './common/response';
+import { HttpExceptionFilter } from './common/requestFailed';
 import { BadRequestException, HttpException, HttpStatus, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
-import { JwtAuthGuard } from './auth/jwt.auth.guard.js';
+import { JwtAuthGuard } from './auth/jwt.auth.guard';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
