@@ -1,13 +1,11 @@
-name: NestJS CI CD (Build in CI, Run on Server)
+name: NestJS CI CD
 
 on:
   push:
     branches: ['nestmain']
-  pull_request:
-    branches: ['nestmain']
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     strategy:
@@ -15,7 +13,7 @@ jobs:
         node-version: [18.19.1]
 
     steps:
-      # 1️⃣ 拉代码
+      # 1️⃣ 拉代码（包含 src）
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -38,34 +36,23 @@ jobs:
       - name: Prune dev dependencies
         run: npm prune --production
 
-      # 6️⃣ 准备部署目录（只放服务器需要的东西）
-      - name: Prepare deploy package
-        run: |
-          rm -rf deploy
-          mkdir deploy
-          cp -r dist deploy/
-          cp package.json deploy/
-          cp package-lock.json deploy/
-          cp -r node_modules deploy/
-          if [ -f ecosystem.config.js ]; then cp ecosystem.config.js deploy/; fi
-
-      # 7️⃣ 上传到服务器
-      - name: Upload to server
+      # 6️⃣ 上传到服务器（覆盖 dist + node_modules）
+      - name: Upload project to server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: deploy/*
+          source: |
+            dist
+            node_modules
+            package.json
+            package-lock.json
+            src
           target: /var/www/home1/
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      # 8️⃣ 在服务器生成 .env.production + 启动服务
-      - name: Start app on server
+      # 7️⃣ 服务器：生成 env + 重启进程
+      - name: Restart app on server
         uses: appleboy/ssh-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
@@ -84,13 +71,9 @@ jobs:
             echo "REFRESH_SECRET=refSecretKey" >> .env.production
             echo "REFRESH_EXPIRES_IN=24h" >> .env.production
             echo "DEFAULT_PASSWORD=888888" >> .env.production
-
             echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
             echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
-            echo "ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}" >> .env.production
 
-            # 限制 Node 内存（防止小服务器 OOM）
             export NODE_OPTIONS="--max-old-space-size=512"
 
-            # 只启动 / 重启，不 install，不 build
             pm2 start dist/main.js --name nest-app --env production || pm2 restart nest-app
