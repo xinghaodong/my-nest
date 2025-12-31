@@ -26,7 +26,7 @@ jobs:
 
       # 3️⃣ 安装依赖（只在 CI）
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       # 4️⃣ 构建 Nest（只在 CI）
       - name: Build project
@@ -43,12 +43,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: |
-            dist
-            node_modules
-            package.json
-            package-lock.json
-            src
+          source: dist,node_modules,package.json,package-lock.json,src
           target: /var/www/home1/
 
       # 7️⃣ 服务器：生成 env + 重启进程
