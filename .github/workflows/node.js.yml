@@ -1,74 +1,108 @@
-name: NestJS CI CD
+name: Node.js CI CD
 
 on:
-  push:
-    branches: ['nestmain']
+    push:
+        branches: ['nestmain']
+    pull_request:
+        branches: ['nestmain']
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+    build:
+        runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        node-version: [22.5.1]
+        strategy:
+            matrix:
+                node-version: [22.5.1]
 
-    steps:
-      # 1️⃣ 拉代码（包含 src）
-      - name: Checkout code
-        uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  cache: 'npm'
 
-      # 2️⃣ Node 环境
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+            - name: Clean and Install Dependencies
+              run: |
+                  rm -rf node_modules package-lock.json
+                  npm cache clean --force
+                  npm install --legacy-peer-deps
 
-      # 3️⃣ 安装依赖（只在 CI）
-      - name: Install dependencies
-        run: npm install
+            - name: Build Project
+              run: npm run build
 
-      # 4️⃣ 构建 Nest（只在 CI）
-      - name: Build project
-        run: npm run build
+            - name: Run Tests
+              run: npm test
 
-      # 5️⃣ 只保留生产依赖
-      - name: Prune dev dependencies
-        run: npm prune --production
+    deploy:
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
 
-      # 6️⃣ 上传到服务器（覆盖 dist + node_modules）
-      - name: Upload project to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: dist,node_modules,package.json,package-lock.json,src
-          target: /var/www/home1/
+            # 上传源代码到服务器（排除 node_modules）
+            - name: Upload source code to server1
+              uses: appleboy/scp-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  source: './,**/*,!./node_modules/**'
+                  target: /var/www/home1/ # 目标服务器路径
 
-      # 7️⃣ 服务器：生成 env + 重启进程
-      - name: Restart app on server
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /var/www/home1
+            # 在服务器上生成 .env.production 文件（只包含敏感信息）
+            - name: Generate .env.production on server
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  script: |
+                      cd /var/www/home1
+                      # 写入明文配置
+                      echo "PORT=3000" > .env.production
+                      echo "DB_TYPE=mysql" >> .env.production
+                      echo "DB_HOST=127.0.0.1" >> .env.production
+                      echo "DB_PORT=3306" >> .env.production
+                      echo "DB_DATABASE=nestdatabase" >> .env.production
+                      echo "JWT_EXPIRES_IN=1h" >> .env.production
+                      echo "JWT_SECRET=secretKey" >> .env.production
+                      echo "REFRESH_SECRET=refSecretKey" >> .env.production
+                      echo "REFRESH_EXPIRES_IN=24h" >> .env.production
+                      echo "DEFAULT_PASSWORD=888888" >> .env.production
+                      # 写入敏感信息（通过 GitHub Secrets）
+                      echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
+                      echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
+                      echo "ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}" >> .env.production
 
-            echo "PORT=3000" > .env.production
-            echo "DB_TYPE=mysql" >> .env.production
-            echo "DB_HOST=127.0.0.1" >> .env.production
-            echo "DB_PORT=3306" >> .env.production
-            echo "DB_DATABASE=nestdatabase" >> .env.production
-            echo "JWT_EXPIRES_IN=1h" >> .env.production
-            echo "JWT_SECRET=secretKey" >> .env.production
-            echo "REFRESH_SECRET=refSecretKey" >> .env.production
-            echo "REFRESH_EXPIRES_IN=24h" >> .env.production
-            echo "DEFAULT_PASSWORD=888888" >> .env.production
-            echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
-            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
+            # 在服务器上安装依赖并启动应用
+            - name: Deploy to Alibaba Cloud Server (via SSH)
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  script: |
+                      cd /var/www/home1
+                      npm install --legacy-peer-deps
+                      npm run build
+                      pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod
+            # 推送到Gitee
+            # - name: Push to Gitee
+            #   run: |
+            #       git config --global user.name "xing-hao-dong"
+            #       git config --global user.email "975115611@qq.com"
 
-            export NODE_OPTIONS="--max-old-space-size=512"
+            #       git remote add gitee https://gitee.com/xing-hao-dong/nest-typeorm.git
+            #       git fetch gitee
+                  
+            #       # 强制拉取并自动接受本地版本的更改
+            #       git merge -X ours gitee/master || echo "No merge necessary"
+                  
+            #       git add -A
+            #       git commit -m "CI: Auto-commit changes before pushing to Gitee" || echo "No changes to commit"
 
-            pm2 start dist/main.js --name nest-app --env production || pm2 restart nest-app
+            #       git push https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/xing-hao-dong/nest-typeorm.git HEAD:master -f            
+
+                      
