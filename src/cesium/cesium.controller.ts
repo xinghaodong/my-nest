@@ -26,7 +26,7 @@ export class CesiumController {
     findOne(@Query('id') id: number) {
         return this.cesiumService.findOne(id);
     }
-    // post 修改航线接口
+    // post 修改航线接口1
 
     @Post('update')
     update(@Body() updateCesiumDto: UpdateCesiumDto) {
