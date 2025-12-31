@@ -167,7 +167,7 @@ export class ai_testservice {
 
         let accumulatedResponse = '';
         try {
-            // 1. 获取对话历史记录
+            // 1. 获取对话历史记录  这里需要对历史数据进行处理 不然会超出上下文导致ollama无法处理
             const historyList = await this.getConversationHistory(conversationId, '1');
             const conversationHistory = historyList.map(item => ({
                 role: item.role === 'user' ? 'user' : 'assistant',
@@ -219,38 +219,39 @@ export class ai_testservice {
                 if (signal.aborted) {
                     throw new Error('Request Aborted');
                 }
-
+                console.log('chunk:', chunk);
                 if (chunk.message?.content) {
-                    console.log('chunk:', chunk);
+                    // console.log('chunk:', chunk);
                     accumulatedResponse += chunk.message.content;
                     sentenceBuffer += chunk.message.content;
                     //  正常文字流
-                    res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    // res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
+                    // res.write(`data: ${JSON.stringify(chunk.message.content)}\n\n`);
+                    if (chunk.message?.content) {
+                        res.write(
+                            `data: ${JSON.stringify({
+                                type: 'content', // 明确类型之后扩展思考的模式
+                                text: chunk.message.content,
+                            })}\n\n`,
+                        );
+                    }
                     // res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
                     // 只要检测到一句话结尾 → 立刻 TTS 可以加上.
-                    if (sentenceBuffer.match(/[。！？!?]/)) {
-                        console.log('ttsText:', sentenceBuffer);
-                        const ttsText = sentenceBuffer;
-                        sentenceBuffer = '';
-
-                        const audioBase64 = await this.aiTtsStreamService.tts(ttsText);
-
-                        if (audioBase64) {
-                            // res.write(
-                            //     `data: ${JSON.stringify({
-                            //         type: 'audio',
-                            //         audio: audioBase64
-                            //     })}\n\n`,
-                            // );
-                            res.write(
-                                `data: ${JSON.stringify({
-                                    type: 'audio',
-                                    // 加上前缀，明确是 data URL（前端最简单判断）
-                                    audio: `data:audio/mp3;base64,${audioBase64}`,
-                                })}\n\n`,
-                            );
-                        }
-                    }
+                    // if (sentenceBuffer.match(/[。！？.!?]/)) {
+                    //     console.log('ttsText:', sentenceBuffer);
+                    //     const ttsText = sentenceBuffer;
+                    //     sentenceBuffer = '';
+                    //     const audioBase64 = await this.aiTtsStreamService.tts(ttsText);
+                    //     if (audioBase64) {
+                    //         res.write(
+                    //             `data: ${JSON.stringify({
+                    //                 type: 'audio',
+                    //                 // 加上前缀，明确是 data URL（前端最简单判断）
+                    //                 audio: `data:audio/mp3;base64,${audioBase64}`,
+                    //             })}\n\n`,
+                    //         );
+                    //     }
+                    // }
                 }
             }
             // for await (const chunk of completion) {

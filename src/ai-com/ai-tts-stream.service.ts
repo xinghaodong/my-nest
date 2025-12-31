@@ -8,30 +8,6 @@ import { AiController } from './ai-com.controller';
 @Injectable()
 export class AiTtsStreamService {
     private activeTtsControllers = new Map<string, AbortController>();
-
-    // cleanTtsText(text: string) {
-    //     if (!text) return '';
-
-    //     return (
-    //         text
-    //             // ✅ 去掉特殊朗读符号
-    //             .replace(/[※#@￥%&*^~`]/g, '')
-
-    //             // ✅ 去掉多余空白
-    //             .replace(/\s+/g, ' ')
-
-    //             // ✅ 连续标点只保留一个
-    //             .replace(/[。！？.!?]{2,}/g, '$&'.slice(0, 1))
-
-    //             // ✅ 去掉括号内容（可选，不想读备注）
-    //             .replace(/[\(\（].*?[\)\）]/g, '')
-    //             // 再去掉 … 符号
-    //             .replace(/…/g, '')
-    //             .replace(/\.{3,}/g, '，')
-
-    //             .trim()
-    //     );
-    // }
     cleanTtsText(text: string) {
         if (!text) return '';
 
@@ -47,7 +23,7 @@ export class AiTtsStreamService {
         // 关键修复：每句前面加一个看不见的“。”（中文全角句号）或空格
         // 微软会把这个“.”当成前置引导音，吃掉它，而不是你的正文
         // 人类完全听不出来，但完美防截断！
-        cleaned = '。' + cleaned;
+        cleaned = '  ' + cleaned;
 
         // 可选：如果你特别在意，还可以加多个
         // cleaned = '。。' + cleaned;
@@ -108,9 +84,9 @@ export class AiTtsStreamService {
 
         try {
             const tts = new EdgeTTS(cleanText, voice, {
-                rate: '+10%',
-                volume: '+0%',
-                pitch: '+5Hz',
+                rate: '+5%', //语速
+                volume: '+0%', //音量
+                pitch: '+5Hz', //音调（基频）
             });
 
             const result = await tts.synthesize();
