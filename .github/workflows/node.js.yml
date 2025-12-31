@@ -10,7 +10,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.19.1]
+        node-version: [22.5.1]
 
     steps:
       # 1️⃣ 拉代码（包含 src）
