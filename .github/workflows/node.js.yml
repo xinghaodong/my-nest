@@ -72,6 +72,7 @@ jobs:
                       echo "REFRESH_SECRET=refSecretKey" >> .env.production
                       echo "REFRESH_EXPIRES_IN=24h" >> .env.production
                       echo "DEFAULT_PASSWORD=888888" >> .env.production
+                      echo "OLLAMA_HOST=http://100.102.217.36 >> .env.production
                       # 写入敏感信息（通过 GitHub Secrets）
                       echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
                       echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production

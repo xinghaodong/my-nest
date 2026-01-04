@@ -7,7 +7,7 @@ import { Message } from './entities/ai-com.entity';
 // 导入时间查询工具
 import { format } from 'date-fns';
 import axios from 'axios';
-import ollama from 'ollama';
+import { Ollama } from 'ollama';
 import { AbortController } from 'node-abort-controller'; // 注意安装这个包
 import { AiTtsStreamService } from './ai-tts-stream.service';
 const controller = new AbortController();
@@ -16,6 +16,7 @@ const controller = new AbortController();
  */
 @Injectable()
 export class ai_testservice {
+    private ollamaClient: Ollama;
     private client: OpenAI;
     public activeControllers = new Map<string, AbortController>();
     private tools: any = [
@@ -59,6 +60,10 @@ export class ai_testservice {
         this.client = new OpenAI({
             apiKey: process.env.ALIYUN_API_KEY,
             baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        });
+        // 创建自定义 Ollama 客户端，本地电脑的 Tailscale IP
+        this.ollamaClient = new Ollama({
+            host: `http://${process.env.OLLAMA_HOST || '127.0.0.1'}:11434`,
         });
     }
     async getCurrentWeather(args) {
@@ -213,7 +218,7 @@ export class ai_testservice {
             ];
             // 3. 调用 Ollama 的 chat 接口
             //  'http://localhost:11434/api/chat',
-            const completion = await ollama.chat({ model: model, messages, stream: true, signal } as any);
+            const completion = await this.ollamaClient.chat({ model: model, messages, stream: true, signal } as any);
             let sentenceBuffer = '';
 
             for await (const chunk of completion) {
@@ -488,7 +493,7 @@ export class ai_testservice {
     // 查询本地ollama模型
     async getOllamaModels(): Promise<any> {
         try {
-            let models = await ollama.list();
+            let models = await this.ollamaClient.list();
             return models.models;
         } catch (error) {
             throw new HttpException('本地模型加载失败', HttpStatus.INTERNAL_SERVER_ERROR);
