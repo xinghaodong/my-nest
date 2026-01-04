@@ -87,6 +87,10 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   script: |
                       cd /var/www/home1
+                    # 强制清理旧的依赖和锁文件
+                      rm -rf node_modules package-lock.json
+                    # 清理 npm 缓存
+                      npm cache clean --force
                       npm install --legacy-peer-deps
                       npm run build
                       pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod
