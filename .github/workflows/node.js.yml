@@ -21,7 +21,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: ${{ matrix.node-version }}
-                  # cache: 'npm' 不使用 package-lock.json
+                  cache: 'npm'
 
             - name: Clean and Install Dependencies
               run: |
