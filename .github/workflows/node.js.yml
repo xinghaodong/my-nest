@@ -6,14 +6,14 @@ on:
         branches: ['nestmain']
     pull_request:
         branches: ['nestmain']
-#build 阶段（CI：持续集成）
+
 jobs:
     build:
         runs-on: ubuntu-latest
 
         strategy:
             matrix:
-                node-version: [18.19.1]
+                node-version: [22.5.1]
 
         steps:
             - uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
 
             - name: Run Tests
               run: npm test
-    #deploy 阶段（CD：持续部署）
+
     deploy:
         runs-on: ubuntu-latest
         needs: build
@@ -52,7 +52,7 @@ jobs:
                   source: './,**/*,!./node_modules/**'
                   target: /var/www/home1/ # 目标服务器路径
 
-            # 动态在服务器上生成 .env.production 文件
+            # 在服务器上生成 .env.production 文件（只包含敏感信息）
             - name: Generate .env.production on server
               uses: appleboy/ssh-action@v0.1.7
               with:
