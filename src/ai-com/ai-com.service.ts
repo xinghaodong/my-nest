@@ -10,6 +10,7 @@ import axios from 'axios';
 import ollama from 'ollama';
 import { AbortController } from 'node-abort-controller'; // 注意安装这个包
 import { AiTtsStreamService } from './ai-tts-stream.service';
+const controller = new AbortController();
 /**
  * 本地大模型服务 可以用 node 安装 ollama 也可以自定义客户端访问 直接调用本机的ollama服务
  */
