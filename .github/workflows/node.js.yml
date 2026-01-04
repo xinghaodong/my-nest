@@ -1,6 +1,6 @@
 name: Node.js CI CD
 
-#触发条件：nestmain 分支有 push 或 PR 时执行。
+#触发条件：nestmain 分支有 push 或 PR 时执行。1
 on:
     push:
         branches: ['nestmain']
