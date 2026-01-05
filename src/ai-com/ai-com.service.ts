@@ -61,6 +61,7 @@ export class ai_testservice {
             apiKey: process.env.ALIYUN_API_KEY,
             baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         });
+        console.log('ollamaClient', process.env.OLLAMA_HOST);
         // 创建自定义 Ollama 客户端，本地电脑的 Tailscale IP
         this.ollamaClient = new Ollama({
             host: `http://${process.env.OLLAMA_HOST || '127.0.0.1'}:11434`,
@@ -493,6 +494,7 @@ export class ai_testservice {
     // 查询本地ollama模型
     async getOllamaModels(): Promise<any> {
         try {
+            console.log('开始查询本地ollama模型', process.env.OLLAMA_HOST, this.ollamaClient);
             let models = await this.ollamaClient.list();
             return models.models;
         } catch (error) {
