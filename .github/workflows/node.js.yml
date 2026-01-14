@@ -77,8 +77,8 @@ jobs:
                       # 解压新版本
                       tar -xzf deploy.tar.gz
 
-                      # 安全生成 .env.production（使用单引号 EOF 防止 shell 扩展）
-                      cat > .env.production << 'EOF'
+                      # 安全生成 .env直接覆盖本地的env
+                      cat > .env << 'EOF'
                       PORT=3000
                       DB_TYPE=mysql
                       DB_HOST=127.0.0.1
