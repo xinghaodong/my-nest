@@ -1,10 +1,13 @@
-import { Body, Controller, Get, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, ParseIntPipe, Post, Query, Res, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { ai_testservice } from './ai-com.service';
 import { Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
 import { FilelistService } from '../filelist/filelist.service';
 import { AiComSttService } from './ai-com.stt.service';
 import { AiTtsStreamService } from './ai-tts-stream.service';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import * as fs from 'fs';
 
 @Controller('ai')
 export class AiController {
@@ -22,6 +25,7 @@ export class AiController {
         @Query('conversationId') conversationId: string,
         @Query('model') model: string,
         @Query('enableInternetSearch') enableInternetSearch: string,
+        @Query('useRag') useRag: string,
         @Res() res: Response,
     ) {
         res.setHeader('Content-Type', 'text/event-stream');
@@ -30,7 +34,7 @@ export class AiController {
         res.setHeader('Transfer-Encoding', 'chunked');
         try {
             // 调用 AI 服务，获取流式数据
-            await this.aiService.callModelStream(prompt, conversationId, model, enableInternetSearch, res);
+            await this.aiService.callModelStream(prompt, conversationId, model, enableInternetSearch, useRag, res);
         } catch (error) {
             res.status(500).write('data: {"error": "AI 流式请求失败"}\n\n');
             res.end();
@@ -113,5 +117,45 @@ export class AiController {
         // 调用模型识别
         const text = await this.AiComSttService.transcribe((file as any).filePath);
         return { text };
+    }
+
+    // 新增：PDF 多文件上传（字段名 pdfs，支持多个）
+    // @Public()
+    // @Post('upload-pdfs')
+    // @UseInterceptors(FilesInterceptor('pdfs')) // 复用你已有的 Multer 配置
+    // async uploadPdfs(@UploadedFiles() files: Express.Multer.File[]) {
+    //     if (!files || files.length === 0) {
+    //         throw new BadRequestException('未上传 PDF 文件');
+    //     }
+    //     return this.aiService.processPdfUploads(files, this.filelistService);
+    // }
+    // 修改接口
+    @Public()
+    @Post('upload-pdfs')
+    @UseInterceptors(
+        FilesInterceptor('pdfs', 10, {
+            // 10 是 maxCount，可选，限制最多10个文件
+            storage: diskStorage({
+                destination: (req, file, cb) => {
+                    const uploadPath = './uploads';
+                    if (!fs.existsSync(uploadPath)) {
+                        fs.mkdirSync(uploadPath, { recursive: true });
+                    }
+                    cb(null, uploadPath);
+                },
+                filename: (req, file, cb) => {
+                    const filename = `${file.originalname}`; // 或加时间戳/UUID 防重名
+                    cb(null, filename);
+                },
+            }),
+            limits: { fileSize: 1024 * 1024 * 5 }, // 可选，复用你的限制
+        }),
+    )
+    async uploadPdfs(@UploadedFiles() files: Express.Multer.File[]) {
+        if (!files || files.length === 0) {
+            throw new BadRequestException('未上传 PDF 文件');
+        }
+
+        return this.aiService.processPdfUploads(files, this.filelistService);
     }
 }

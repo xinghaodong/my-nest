@@ -275,13 +275,13 @@ export class FundEstimateService {
         // console.log(url, 'url');
 
         try {
+            // { params, headers: this.headers }
             const response = await axios.get(url, { params, headers: this.headers });
-            // console.log('✅ 请求成功:', response.data.data);
             return response.data.data;
         } catch (error) {
-            console.error('❌ 请求错误！！:', error);
+            console.error('请求错误！！:', error);
             if (axios.isAxiosError(error)) {
-                console.error('❌ Axios 错误:', error.message);
+                console.error('Axios 错误:', error.message);
                 console.error('状态码:', error.response?.status);
                 console.error('响应数据:', error.response?.data);
             } else {

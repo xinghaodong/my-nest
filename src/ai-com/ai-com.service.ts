@@ -10,12 +10,22 @@ import axios from 'axios';
 import { Ollama } from 'ollama';
 import { AbortController } from 'node-abort-controller'; // 注意安装这个包
 import { AiTtsStreamService } from './ai-tts-stream.service';
+import * as fs from 'fs';
+import { ChromaClient, EmbeddingFunction } from 'chromadb';
+import { FilelistService } from '../filelist/filelist.service';
+import { FileList as AppFileList } from '../filelist/entities/filelist.entity'; // 用别名避免冲突
+import { PDFParse } from 'pdf-parse';
 const controller = new AbortController();
 /**
  * 本地大模型服务 可以用 node 安装 ollama 也可以自定义客户端访问 直接调用本机的ollama服务
  */
 @Injectable()
 export class ai_testservice {
+    // 在类内部添加属性
+    private chromaClient: any;
+    private collection: any;
+    private pdfEmbeddingFunction: any;
+    private readonly embeddingModel = 'nomic-embed-text'; // 可改成你喜欢的 embedding 模型
     private ollamaClient: Ollama;
     private client: OpenAI;
     public activeControllers = new Map<string, AbortController>();
@@ -50,6 +60,7 @@ export class ai_testservice {
             },
         },
     ];
+    // private pdfEmbeddingFunction: EmbeddingFunction<string>;
     constructor(
         @InjectRepository(ChatRecord)
         private readonly chatRecordRepository: Repository<ChatRecord>,
@@ -66,6 +77,21 @@ export class ai_testservice {
         this.ollamaClient = new Ollama({
             host: `http://${process.env.OLLAMA_HOST || '127.0.0.1'}:11434`,
         });
+        this.chromaClient = new ChromaClient({
+            host: 'localhost',
+            port: 8000,
+            ssl: false,
+        });
+
+        this.pdfEmbeddingFunction = {
+            embed: async (texts: string[]) => {
+                const response = await this.ollamaClient.embed({
+                    model: this.embeddingModel, // 'nomic-embed-text'
+                    input: texts,
+                });
+                return response.embeddings; // 返回 number[][]
+            },
+        };
     }
     async getCurrentWeather(args) {
         let city = args?.location || args;
@@ -95,6 +121,84 @@ export class ai_testservice {
         const formattedTime = format(currentDatetime, 'yyyy-MM-dd HH:mm:ss');
         // 返回格式化后的当前时间
         return `当前时间：${formattedTime}。`;
+    }
+
+    private async getCollection() {
+        if (!this.collection) {
+            // getOrCreateCollection 在 JS 客户端是异步的
+            this.collection = await this.chromaClient.getOrCreateCollection({
+                name: 'pdf_collection',
+                embeddingFunction: this.pdfEmbeddingFunction, // 直接传对象
+                metadata: { 'hnsw:space': 'cosine' }, // 可选
+            });
+        }
+        return this.collection;
+    }
+
+    // 新增：处理 PDF 上传（提取文本、分块、embedding、存 Chroma）
+    async processPdfUploads(files: Express.Multer.File[], filelistService: FilelistService) {
+        const results = [];
+
+        for (const file of files) {
+            console.log(file, 'file');
+            try {
+                const fileEntity = new AppFileList();
+                fileEntity.fileName = file.filename || file.originalname;
+                fileEntity.contentType = file.mimetype;
+                fileEntity.fileSize = file.size;
+                fileEntity.filePath = file.path.replace(/\\/g, '/');
+                const savedFile = await filelistService.saveFile(fileEntity);
+                // const pdfParse: (data: Buffer) => Promise<{ text: string }> = require('pdf-parse');
+                const fileBuffer = fs.readFileSync(file.path);
+                const parser = new PDFParse({ data: fileBuffer });
+                const pdfData = await parser.getText();
+                console.log(pdfData, 'pdfData');
+
+                // const pdfData = await pdfParse.default(fileBuffer);
+                let fullText = pdfData.text;
+                console.log(fullText, 'fullText');
+
+                // 如果文本太长或需要更好分块，可以在这里进一步处理
+                // 简单分块（每 1000 字符一块）
+                const chunkSize = 1000;
+                const chunks: string[] = [];
+                for (let i = 0; i < fullText.length; i += chunkSize) {
+                    chunks.push(fullText.substring(i, i + chunkSize));
+                }
+
+                if (chunks.length === 0) {
+                    results.push({ fileId: savedFile.id, status: 'empty' });
+                    continue;
+                }
+
+                // 4. 使用 Ollama 生成 embeddings
+                const embedResponse = await this.ollamaClient.embed({
+                    model: this.embeddingModel,
+                    input: chunks,
+                });
+                const embeddings = embedResponse.embeddings;
+
+                // 5. 存入 Chroma
+                const collection = await this.getCollection();
+                const ids = chunks.map((_, idx) => `${savedFile.id}_chunk_${idx}`);
+                await collection.add({
+                    ids,
+                    embeddings,
+                    documents: chunks,
+                    metadatas: chunks.map(() => ({
+                        source: file.originalname,
+                        fileId: savedFile.id,
+                    })),
+                });
+
+                results.push({ fileId: savedFile.id, chunks: chunks.length, status: 'success' });
+            } catch (error) {
+                console.error(`处理文件 ${file.originalname} 失败:`, error);
+                results.push({ file: file.originalname, status: 'error', error: error.message });
+            }
+        }
+
+        return { message: 'PDF 处理完成', results };
     }
 
     shouldEnableWebSearch(prompt: string, conversationHistory: any[]): boolean {
@@ -157,20 +261,20 @@ export class ai_testservice {
     }
 
     /** 判断是本地模型还是服务商模型 统一处理流式请求 */
-    async callModelStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
+    async callModelStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, useRag: string, res: any) {
         await this.saveChatRecord('user', prompt, conversationId);
         if (model === 'qwen-plus') {
-            return this.callAliyunStream(prompt, conversationId, model, useInternetSearch, res);
+            return this.callAliyunStream(prompt, conversationId, model, useInternetSearch, useRag, res);
         } else {
-            return this.callOllamaStream(prompt, conversationId, model, useInternetSearch, res);
+            return this.callOllamaStream(prompt, conversationId, model, useInternetSearch, useRag, res);
         }
     }
     /**
      * 本地模型调用
      */
     /** 本地 Ollama (例如:DeepSeek-R1等开源模型) 处理流式请求（带上下文记忆、联网搜索功能） */
-    async callOllamaStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
-        console.log(`使用本地 Ollama (${model}) 处理带上下文的请求`, prompt);
+    async callOllamaStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, useRag: string, res: any) {
+        console.log(`使用本地 Ollama (${model}) useRag:${useRag} 处理带上下文的请求`, prompt);
 
         let accumulatedResponse = '';
         try {
@@ -208,11 +312,45 @@ export class ai_testservice {
                     res.write(`data: ${JSON.stringify({ status: 'search_failed', message: '联网搜索失败，将仅使用本地知识库回答' })}\n\n`);
                 }
             }
+
+            let ragContext = '';
+
+            // 新增：如果启用 RAG，则检索相关片段
+            if (useRag == '1') {
+                try {
+                    const collection = await this.getCollection();
+                    const queryEmbed = await this.ollamaClient.embed({
+                        model: this.embeddingModel,
+                        input: prompt,
+                    });
+                    const queryEmbedding = queryEmbed.embeddings[0];
+
+                    const results = await collection.query({
+                        queryEmbeddings: [queryEmbedding],
+                        nResults: 4,
+                        include: ['documents', 'metadatas'],
+                    });
+
+                    if (results.documents[0] && results.documents[0].length > 0) {
+                        results.documents[0].forEach((doc: string, idx: number) => {
+                            const meta = results.metadatas[0][idx];
+                            ragContext += `【来源文件：${meta.source}】\n${doc}\n\n`;
+                        });
+                    }
+                } catch (error) {
+                    console.error('RAG 检索失败:', error);
+                    ragContext = '\n[注意：PDF 知识库暂时不可用]\n';
+                }
+            }
+
+            // 构造 system prompt（在原有 searchContext 基础上追加 ragContext）
+            const systemContent = '你是一个智能助手，请使用中文回答。' + (searchContext ? searchContext : '') + (ragContext ? '\n\n[上传的 PDF 文档上下文]\n' + ragContext : '');
+
             // 3. 构造消息
             const messages = [
                 {
                     role: 'system',
-                    content: '你是一个智能助手，请遵循以下要求：' + '\n1. 使用中文回答' + searchContext,
+                    content: systemContent,
                 },
                 ...conversationHistory,
                 { role: 'user', content: prompt },
@@ -309,7 +447,7 @@ export class ai_testservice {
      * @param res 用于流式返回响应的对象
      * @returns 无返回值
      */
-    async callAliyunStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, res: any) {
+    async callAliyunStream(prompt: string, conversationId: string, model: string, useInternetSearch: string, useRag: string, res: any) {
         console.log('使用阿里云模型处理带上下文的请求', prompt);
         let historyList = await this.getConversationHistory(conversationId, '1');
         let conversationHistory = historyList.map(item => {

@@ -22,6 +22,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@langchain/core": "^1.1.12",
+    "@langchain/langgraph": "^1.0.15",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.3.0",
     "@nestjs/core": "^10.0.0",
@@ -36,6 +38,7 @@
     "axios": "^1.8.3",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.1.2",
+    "chromadb": "^3.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "date-fns": "^4.1.0",
@@ -45,6 +48,7 @@
     "openai": "^4.85.4",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20",

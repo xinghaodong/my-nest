@@ -15,6 +15,7 @@ import * as fs from 'fs';
             limits: { fileSize: 1024 * 1024 * 5 },
             storage: diskStorage({
                 destination: (req, file, cb) => {
+                    console.log('?');
                     const uploadPath = './uploads';
                     if (!fs.existsSync(uploadPath)) {
                         fs.mkdirSync(uploadPath, { recursive: true });

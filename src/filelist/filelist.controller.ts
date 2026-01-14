@@ -17,6 +17,7 @@ export class FilelistController {
             if (!file) {
                 throw new BadRequestException('未上传文件');
             }
+            console.log(file, 'file');
             const fileEntity = new FileList();
             fileEntity.fileName = file.filename;
             fileEntity.contentType = file.mimetype;
