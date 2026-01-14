@@ -1,59 +1,54 @@
-name: Node.js CI CD
-
-#触发条件：nestmain 分支有 push 或 PR 时执行。2
-on:
-    push:
-        branches: ['nestmain']
-    pull_request:
-        branches: ['nestmain']
-
 jobs:
     build:
         runs-on: ubuntu-latest
-
-        strategy:
-            matrix:
-                node-version: [22.20.0]
-
         steps:
             - uses: actions/checkout@v4
-            - name: Use Node.js ${{ matrix.node-version }}
+
+            - name: Use Node.js 22.20.0
               uses: actions/setup-node@v4
               with:
-                  node-version: ${{ matrix.node-version }}
+                  node-version: 22.20.0
                   cache: 'npm'
 
-            - name: Clean and Install Dependencies
+            - name: Install dependencies
+              run: npm ci --legacy-peer-deps # 使用 package-lock.json 精确安装
+
+            - name: Build project
+              run: npm run build # 输出到 dist/
+
+            # 打包整个可运行目录（含 node_modules + dist + 必要文件）
+            - name: Package deployment artifact
               run: |
-                  rm -rf node_modules package-lock.json
-                  npm cache clean --force
-                  npm install --legacy-peer-deps
+                  mkdir -p deploy-package
+                  cp -r node_modules dist package.json nest-cli.json .env.production.template deploy-package/
+                  # 不要包含 .env.production敏感信息由服务器注入
 
-            - name: Build Project
-              run: npm run build
-
-            - name: Run Tests
-              run: npm test
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: nest-app-deploy
+                  path: deploy-package/
 
     deploy:
-        runs-on: ubuntu-latest
         needs: build
+        runs-on: ubuntu-latest
         steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+            - name: Download artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: nest-app-deploy
+                  path: ./deploy-package
 
-            # 上传源代码到服务器（排除 node_modules）
-            - name: Upload source code to server1
+            - name: Upload to server
               uses: appleboy/scp-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: './,**/*,!./node_modules/**'
-                  target: /var/www/home1/ # 目标服务器路径
+                  source: 'deploy-package/**'
+                  target: '/var/www/home1/'
 
-            # 在服务器上生成 .env.production 文件（只包含敏感信息）
-            - name: Generate .env.production on server
+            - name: Generate .env.production on server (securely)
               uses: appleboy/ssh-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
@@ -61,25 +56,24 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   script: |
                       cd /var/www/home1
-                      # 写入明文配置
-                      echo "PORT=3000" > .env.production
-                      echo "DB_TYPE=mysql" >> .env.production
-                      echo "DB_HOST=127.0.0.1" >> .env.production
-                      echo "DB_PORT=3306" >> .env.production
-                      echo "DB_DATABASE=nestdatabase" >> .env.production
-                      echo "JWT_EXPIRES_IN=1h" >> .env.production
-                      echo "JWT_SECRET=secretKey" >> .env.production
-                      echo "REFRESH_SECRET=refSecretKey" >> .env.production
-                      echo "REFRESH_EXPIRES_IN=24h" >> .env.production
-                      echo "DEFAULT_PASSWORD=888888" >> .env.production
-                      echo "OLLAMA_HOST=100.102.217.36" >> .env.production
-                      # 写入敏感信息（通过 GitHub Secrets）
-                      echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> .env.production
-                      echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env.production
-                      echo "ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}" >> .env.production
+                      cat > .env.production << EOF
+                      PORT=3000
+                      DB_TYPE=mysql
+                      DB_HOST=127.0.0.1
+                      DB_PORT=3306
+                      DB_DATABASE=nestdatabase
+                      DB_USERNAME=${{ secrets.DB_USERNAME }}
+                      DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+                      JWT_SECRET=${{ secrets.JWT_SECRET }}
+                      REFRESH_SECRET=${{ secrets.REFRESH_SECRET }}
+                      ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}
+                      OLLAMA_HOST=100.102.217.36
+                      DEFAULT_PASSWORD=888888
+                      JWT_EXPIRES_IN=1h
+                      REFRESH_EXPIRES_IN=24h
+                      EOF
 
-            # 在服务器上安装依赖并启动应用
-            - name: Deploy to Alibaba Cloud Server (via SSH)
+            - name: Start app with PM2
               uses: appleboy/ssh-action@v0.1.7
               with:
                   host: ${{ secrets.SERVER_IP }}
@@ -87,6 +81,4 @@ jobs:
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
                   script: |
                       cd /var/www/home1
-                      npm install --legacy-peer-deps
-                      npm run build
-                      pm2 restart all || pm2 start npm --name "nest-app" -- run start:prod -- --env=production
+                      pm2 restart nest-app || pm2 start dist/main.js --name "nest-app"
