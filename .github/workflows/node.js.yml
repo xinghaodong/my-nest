@@ -29,7 +29,7 @@ jobs:
             - name: Package deployment artifact
               run: |
                   mkdir -p deploy-package
-                  cp -r node_modules dist package.json nest-cli.json .env.production.template deploy-package/
+                  cp -r node_modules dist package.json nest-cli.json deploy-package/
                   # 注意：不要包含 .env.production（敏感信息由服务器注入）
 
             - name: Upload artifact
