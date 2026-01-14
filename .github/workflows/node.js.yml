@@ -86,8 +86,8 @@ jobs:
                       DB_DATABASE=nestdatabase
                       DB_USERNAME=${{ secrets.DB_USERNAME }}
                       DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-                      JWT_SECRET=${{ secrets.JWT_SECRET }}
-                      REFRESH_SECRET=${{ secrets.REFRESH_SECRET }}
+                      JWT_SECRET=secretKey
+                      REFRESH_SECRET=refSecretKey
                       ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}
                       OLLAMA_HOST=100.102.217.36
                       DEFAULT_PASSWORD=888888
