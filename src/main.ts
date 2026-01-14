@@ -65,5 +65,7 @@ async function bootstrap() {
 
     // await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
     await app.listen(port, host);
+    console.log('NODE_ENV =', process.env.NODE_ENV);
+    console.log('DB_PASSWORD =', process.env.DB_PASSWORD);
 }
 bootstrap();

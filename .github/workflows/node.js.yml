@@ -78,7 +78,7 @@ jobs:
                       tar -xzf deploy.tar.gz
 
                       # 安全生成 .env直接覆盖本地的env
-                      cat > .env << 'EOF'
+                      cat > .env.production << 'EOF'
                       PORT=3000
                       DB_TYPE=mysql
                       DB_HOST=127.0.0.1
@@ -97,4 +97,4 @@ jobs:
 
                       # 启动或重启应用
                       pm2 delete nest-app 2>/dev/null || true
-                      pm2 start dist/main.js --name "nest-app" --cwd /var/www/home1
+                      NODE_ENV=production pm2 start dist/main.js --name nest-app
