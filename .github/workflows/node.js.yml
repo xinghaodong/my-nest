@@ -1,85 +1,94 @@
+name: Node.js CI CD
+
+#触发条件：nestmain 分支有 push 或 PR 时执行。2
+on:
+    push:
+        branches: ['nestmain']
+    pull_request:
+        branches: ['nestmain']
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Use Node.js 22.20.0
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.20.0
-          cache: 'npm'
+            - name: Use Node.js 22.20.0
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.20.0
+                  cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps # 使用 package-lock.json 精确安装
+            - name: Install dependencies
+              run: npm ci --legacy-peer-deps # 使用 package-lock.json 精确安装
 
-      - name: Build project
-        run: npm run build # 输出到 dist/
+            - name: Build project
+              run: npm run build # 输出到 dist/
 
-      # 👇 关键：打包整个可运行目录（含 node_modules + dist + 必要文件）
-      - name: Package deployment artifact
-        run: |
-          mkdir -p deploy-package
-          cp -r node_modules dist package.json nest-cli.json .env.production.template deploy-package/
-          # 注意：不要包含 .env.production（敏感信息由服务器注入）
+            # 打包整个可运行目录（含 node_modules + dist + 必要文件）
+            - name: Package deployment artifact
+              run: |
+                  mkdir -p deploy-package
+                  cp -r node_modules dist package.json nest-cli.json .env.production.template deploy-package/
+                  # 注意：不要包含 .env.production（敏感信息由服务器注入）
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nest-app-deploy
-          path: deploy-package/
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: nest-app-deploy
+                  path: deploy-package/
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: nest-app-deploy
-          path: ./deploy-package
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: nest-app-deploy
+                  path: ./deploy-package
 
-      - name: Upload to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: 'deploy-package/**'
-          target: '/var/www/home1/'
+            - name: Upload to server
+              uses: appleboy/scp-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  source: 'deploy-package/**'
+                  target: '/var/www/home1/'
 
-      - name: Generate .env.production on server (securely)
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /var/www/home1
-            # 使用 heredoc 避免 echo 泄露（且更清晰）
-            cat > .env.production << EOF
-            PORT=3000
-            DB_TYPE=mysql
-            DB_HOST=127.0.0.1
-            DB_PORT=3306
-            DB_DATABASE=nestdatabase
-            DB_USERNAME=${{ secrets.DB_USERNAME }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            REFRESH_SECRET=${{ secrets.REFRESH_SECRET }}
-            ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}
-            OLLAMA_HOST=100.102.217.36
-            DEFAULT_PASSWORD=888888
-            JWT_EXPIRES_IN=1h
-            REFRESH_EXPIRES_IN=24h
-            EOF
+            - name: Generate .env.production on server (securely)
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  script: |
+                      cd /var/www/home1
+                      # 使用 heredoc 避免 echo 泄露（且更清晰）
+                      cat > .env.production << EOF
+                      PORT=3000
+                      DB_TYPE=mysql
+                      DB_HOST=127.0.0.1
+                      DB_PORT=3306
+                      DB_DATABASE=nestdatabase
+                      DB_USERNAME=${{ secrets.DB_USERNAME }}
+                      DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+                      JWT_SECRET=${{ secrets.JWT_SECRET }}
+                      REFRESH_SECRET=${{ secrets.REFRESH_SECRET }}
+                      ALIYUN_API_KEY=${{ secrets.ALIYUN_API_KEY }}
+                      OLLAMA_HOST=100.102.217.36
+                      DEFAULT_PASSWORD=888888
+                      JWT_EXPIRES_IN=1h
+                      REFRESH_EXPIRES_IN=24h
+                      EOF
 
-      - name: Start app with PM2
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /var/www/home1
-            pm2 restart nest-app || pm2 start dist/main.js --name "nest-app"
+            - name: Start app with PM2
+              uses: appleboy/ssh-action@v0.1.7
+              with:
+                  host: ${{ secrets.SERVER_IP }}
+                  username: root
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  script: |
+                      cd /var/www/home1
+                      pm2 restart nest-app || pm2 start dist/main.js --name "nest-app"
