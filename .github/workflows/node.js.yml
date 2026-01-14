@@ -54,7 +54,7 @@ jobs:
                   host: ${{ secrets.SERVER_IP }}
                   username: root
                   key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  source: 'deploy-package/**'
+                  source: './deploy-package/*'
                   target: '/var/www/home1/'
 
             - name: Generate .env.production on server (securely)
