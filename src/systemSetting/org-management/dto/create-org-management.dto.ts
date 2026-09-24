@@ -21,4 +21,16 @@ export class CreateOrgManagementDto {
     })
     @ValidateIf(obj => obj.parentId !== null) // 仅当 parentId 不为 null 时验证
     parentId?: number | null;
+
+    @IsOptional()
+    @IsString()
+    taxCode?: string;
+
+    @IsOptional()
+    @IsString()
+    legalEntityName?: string;
+
+    @IsOptional()
+    @IsString()
+    orgType?: string;
 }

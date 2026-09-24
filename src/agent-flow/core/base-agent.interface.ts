@@ -12,6 +12,7 @@ export interface AuditAnomaly {
         | 'weekend_expense'
         | 'sensitive_keyword'
         | 'budget_exceeded'
+        | 'buyer_mismatch'
         | 'contract_risk'
         | 'other';
     severity: 'low' | 'medium' | 'high';

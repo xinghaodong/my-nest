@@ -9,6 +9,7 @@ import { Not, Repository } from 'typeorm';
 export class OrgManagementService {
     @InjectRepository(OrgManagement)
     private orgManagementRepository: Repository<OrgManagement>;
+
     async create(createOrgManagementDto: CreateOrgManagementDto) {
         // 增加判断 如果是组织唯一编码重复了禁止添加
         if (await this.orgManagementRepository.findOne({ where: { orgcode: createOrgManagementDto.orgcode } })) {
@@ -90,5 +91,34 @@ export class OrgManagementService {
         if (result.affected === 0) {
             throw new HttpException('未找到组织', 404);
         }
+    }
+
+    /**
+     * 根据组织 ID 向上递归追溯该组织归属的法人实体（公司节点）
+     * 具备税号或 orgType === 'company' 优先，若无则追溯至最顶层根组织
+     */
+    async findCompanyByOrgId(organid: number): Promise<OrgManagement | null> {
+        if (!organid) return null;
+        let current = await this.orgManagementRepository.findOne({ where: { organid } });
+        if (!current) return null;
+
+        // 如果当前节点本身配置了税号或明确为公司主体，直接返回
+        if (current.taxCode || current.orgType === 'company') {
+            return current;
+        }
+
+        // 沿 parentId 链条递归向上追溯
+        let visited = new Set<number>([organid]);
+        while (current && current.parentId && !visited.has(current.parentId)) {
+            visited.add(current.parentId);
+            const parent = await this.orgManagementRepository.findOne({ where: { organid: current.parentId } });
+            if (!parent) break;
+            current = parent;
+            if (current.taxCode || current.orgType === 'company') {
+                return current;
+            }
+        }
+
+        return current;
     }
 }

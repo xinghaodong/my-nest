@@ -129,7 +129,7 @@ export function useAgentLlm(roleTag: string = 'AI智能体'): UseAgentLlmReturn 
     async function callOllamaDirect(systemPrompt: string, userPrompt: string, options?: LlmCallOptions): Promise<string> {
         const ollamaHost = getOllamaBaseUrl();
         const modelName = options?.model || getFreshEnv('AI_BD_DEFAULT_MODEL') || 'gemma3:4b';
-        const timeoutMs = options?.timeoutMs || Number(getFreshEnv('AI_OLLAMA_TIMEOUT_MS')) || 60000;
+        const timeoutMs = options?.timeoutMs || Number(getFreshEnv('AI_OLLAMA_TIMEOUT_MS')) || 120000;
 
         console.log(`🌐 [useAgentLlm:${roleTag}] 正在发起本地 Ollama 调用 -> 地址: ${ollamaHost}, 模型: ${modelName} (超时: ${timeoutMs / 1000}秒)`);
         const startTime = Date.now();
@@ -153,7 +153,8 @@ export function useAgentLlm(roleTag: string = 'AI智能体'): UseAgentLlmReturn 
                     keep_alive: keepAlive === '0' ? 0 : keepAlive,
                     options: {
                         temperature: options?.temperature ?? 0.1,
-                        num_ctx: numCtx, // 🌟 限制上下文窗口，降低集显共享显存占用
+                        num_ctx: numCtx, // 🌟 动态上下文窗口 (推荐 >= 4096 防止长单据推理截断)
+                        num_predict: 2048, // 🌟 允许生成的最大 token 数，确保完整输出完整 JSON
                     },
                 }),
                 signal: controller.signal,
@@ -235,7 +236,24 @@ export function useAgentLlm(roleTag: string = 'AI智能体'): UseAgentLlmReturn 
             clean = clean.substring(firstBrace);
         }
 
-        // 自动补齐缺失闭合大括号
+        // 🌟 1. 容错修复未闭合的字符串 (Unterminated String)
+        // 统计未转义双引号数量，如果是奇数，说明结尾被截断在字符串内部，自动补齐闭合双引号
+        const quotesCount = (clean.match(/(?<!\\)"/g) || []).length;
+        if (quotesCount % 2 !== 0) {
+            clean += '"';
+        }
+
+        // 🌟 2. 去除暴露在末尾的悬空逗号
+        clean = clean.replace(/,\s*$/, '');
+
+        // 🌟 3. 自动补齐缺失闭合中括号
+        const openBrackets = (clean.match(/\[/g) || []).length;
+        const closeBrackets = (clean.match(/\]/g) || []).length;
+        if (openBrackets > closeBrackets) {
+            clean += ']'.repeat(openBrackets - closeBrackets);
+        }
+
+        // 🌟 4. 自动补齐缺失闭合大括号
         const openBraces = (clean.match(/\{/g) || []).length;
         const closeBraces = (clean.match(/\}/g) || []).length;
         if (openBraces > closeBraces) {

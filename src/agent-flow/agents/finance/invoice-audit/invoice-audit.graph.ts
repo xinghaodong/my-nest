@@ -23,6 +23,7 @@ import {
     checkInvoiceDuplicationTool,
     checkConsecutiveInvoicesTool,
     checkInvoiceOverdueTool,
+    checkInvoiceBuyerTool,
     extractInvoiceIdentifiers,
     ExtractedInvoiceInfo,
     ToolAuditEvidence,
@@ -260,6 +261,8 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             taxCode?: string;
             sellerName?: string;
             invoiceDate?: string;
+            buyerName?: string;
+            buyerTaxCode?: string;
         }> = [];
         let totalExtractedAmount = 0;
 
@@ -301,7 +304,7 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             totalExtractedAmount += fileAmount;
 
             const identifiers = extractInvoiceIdentifiers(displayName, fileText);
-            console.log(`📋 [发票要素识别] 凭证: ${displayName} | 票面金额: ￥${fileAmount} | 发票号码: ${identifiers.invoiceNumber || '未识别'} | 纳税人税号: ${identifiers.taxCode || '未识别'} | 销售方: ${identifiers.sellerName || '未识别'} | 开票日期: ${identifiers.invoiceDate || '未识别'}`);
+            console.log(`📋 [发票要素识别] 凭证: ${displayName} | 票面金额: ￥${fileAmount} | 发票号码: ${identifiers.invoiceNumber || '未识别'} | 购买方: ${identifiers.buyerName || '未提取'} | 销售方: ${identifiers.sellerName || '未识别'} | 开票日期: ${identifiers.invoiceDate || '未识别'}`);
             extractedDetails.push({
                 name: displayName,
                 amount: fileAmount,
@@ -311,11 +314,13 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
                 taxCode: identifiers.taxCode,
                 sellerName: identifiers.sellerName,
                 invoiceDate: identifiers.invoiceDate,
+                buyerName: identifiers.buyerName,
+                buyerTaxCode: identifiers.buyerTaxCode,
             });
         }
 
         const summaryText = extractedDetails
-            .map((d, i) => `【发票${i + 1}】文件名: ${d.name} | 票面金额: ￥${d.amount} | 发票号码: ${d.invoiceNumber || '未识别'} | 纳税人识别号: ${d.taxCode || '未识别'} | 销售方: ${d.sellerName || '未识别'} | 开票日期: ${d.invoiceDate || '未识别'}`)
+            .map((d, i) => `【发票${i + 1}】文件名: ${d.name} | 票面金额: ￥${d.amount} | 发票号码: ${d.invoiceNumber || '未识别'} | 购买方抬头: ${d.buyerName || '未识别'} (税号: ${d.buyerTaxCode || '未识别'}) | 销售方: ${d.sellerName || '未识别'} | 开票日期: ${d.invoiceDate || '未识别'}`)
             .join('\n');
 
         return {
@@ -382,6 +387,8 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             taxCode: d.taxCode,
             sellerName: d.sellerName,
             invoiceDate: d.invoiceDate,
+            buyerName: d.buyerName,
+            buyerTaxCode: d.buyerTaxCode,
         }));
 
         const dupResults = await checkInvoiceDuplicationTool(extInvoices, state.instanceId, this.instanceRepo);
@@ -426,6 +433,22 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
         } else {
             toolEvidence.summaryNotes.push(overdueCheck.summary);
             toolEvidence.passedNotes?.push(overdueCheck.summary);
+        }
+
+        // 5. 🌟 发票购买方（公司法定抬头与纳税人识别号）合规排查
+        const expectedCompany = state.formData?._companyInfo || state.formData?.companyInfo || {
+            companyName: process.env.DEFAULT_COMPANY_NAME || '',
+            taxCode: process.env.DEFAULT_COMPANY_TAX_CODE || '',
+        };
+        const buyerCheck = checkInvoiceBuyerTool(extInvoices, expectedCompany);
+        toolEvidence.buyerChecks = buyerCheck.buyerChecks;
+        toolEvidence.hasBuyerMismatch = buyerCheck.hasBuyerMismatch;
+        toolEvidence.buyerMismatchDetail = buyerCheck.buyerMismatchDetail;
+        toolEvidence.summaryNotes.push(...buyerCheck.summaryNotes);
+        toolEvidence.fraudAlerts?.push(...buyerCheck.fraudAlerts);
+        toolEvidence.passedNotes?.push(...buyerCheck.passedNotes);
+        if (buyerCheck.hasBuyerMismatch) {
+            toolEvidence.hasCriticalFraud = true;
         }
 
         return {
@@ -490,6 +513,13 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             hardFacts.push(`✅【开票时效合规】发票开票日期在正常报销时效内。`);
         }
 
+        const hasBuyerMismatch = toolResults?.hasBuyerMismatch;
+        if (hasBuyerMismatch) {
+            hardFacts.push(`🚨【发票购买方抬头严重不符事实】${toolResults?.buyerMismatchDetail || '发票购买方企业名称或统一社会信用代码与当前报销所属法人单位不一致，属于非合规报销凭证！'} "buyerMatch" 必须填 false！"pass" 必须填 false！合规分严禁超过 30 分！`);
+        } else if (toolResults?.buyerChecks && toolResults.buyerChecks.length > 0) {
+            hardFacts.push(`✅【发票抬头一致】发票购买方企业名称与纳税人识别号与当前报销所属法人单位一致。`);
+        }
+
         const toolEvidenceText = hardFacts.join('\n');
 
         const systemPrompt = `你是一名拥有15年经验的资深企业财务审计专家兼内部风控总监。
@@ -502,7 +532,8 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
    - 必须实事求是判为不合规（pass 必须为 false，严禁给出通过）！
    - 合规评分 (complianceScore) 严禁评高分（扣除时效分后最高不得超过 60 分，严禁打满分 100 分）！
    - 必须在 summary 与 reasonCheck 中客观指出开票严重超期事实！
-4. 请在 reasonCheck 中一针见血地指出违规本质。
+4. 若【底层核验事实】中指出存在“发票购买方抬头严重不符”，属于非法凭证违规（pass 必须为 false，complianceScore 严禁高于 30 分）！必须在 summary 中明确指出发票抬头与公司不符！
+5. 请在 reasonCheck 中一针见血地指出违规本质。
 
 【输出格式约束】
 必须严格输出以下纯 JSON，严禁附带 markdown 标记或额外解释：
@@ -512,7 +543,7 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
   "summary": "<1句话概括核心审查裁决结果，如包含金额不符与超期必须全部体现>",
   "anomalyList": [
     {
-      "type": "<amount_mismatch | overdue_invoice | duplicate_invoice | invalid_tax_code | other>",
+      "type": "<amount_mismatch | overdue_invoice | duplicate_invoice | invalid_tax_code | buyer_mismatch | other>",
       "severity": "<high | medium | low>",
       "description": "<具体违规异常事实描述，包括具体金额、日期与差额>",
       "suggestion": "<具体整改或合规处置建议>"
@@ -522,12 +553,18 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
   "amountMatch": ${isAmountMatched ? 'true' : 'false'},
   "isDuplicate": ${isDuplicate ? 'true' : 'false'},
   "taxCodeValid": ${isTaxCodeValid ? 'true' : 'false'},
+  "buyerMatch": ${hasBuyerMismatch ? 'false' : 'true'},
   "riskLevel": "${hasCriticalFraud ? 'HIGH' : isAmountMatched ? 'LOW' : 'MEDIUM'}",
   "suggestions": ["<处置建议>"]
-}`;
+} `;
+
+        const expectedCompany = state.formData?._companyInfo || state.formData?.companyInfo;
+        const companyInfoStr = expectedCompany?.companyName
+            ? `(所属法人单位: ${expectedCompany.companyName}${expectedCompany.taxCode ? ` / 统一社会信用代码: ${expectedCompany.taxCode}` : ''})`
+            : '';
 
         const userPrompt = `【待审报销单据】
-- 申请人: ${applicant}
+- 申请人: ${applicant} ${companyInfoStr}
 - 报销类型: ${expenseType}
 - 申报金额: ￥${declaredAmount}
 - 发票金额: ￥${invoiceAmount} (差额: ￥${amountDiff.toFixed(2)})
@@ -586,72 +623,35 @@ ${toolEvidenceText}
             }));
             auditResult.details.toolEvidence = toolResults;
 
-            // 🚨 代码级安全兜底铁律 1：金额匹配红线 (申报金额 vs 票面实际总额)
+            // 🚨 核心安全网：只做底线门禁拦截 (Pass/Score)，绝不干涉或硬塞大模型自主生成的 anomalyList 与 summary
+            if (!Array.isArray(auditResult.anomalyList)) {
+                auditResult.anomalyList = [];
+            }
+
+            // 1. 金额账实不符红线：强制拦截，合规分上限 40
             if (!isAmountMatched && invoiceCount > 0) {
                 auditResult.pass = false;
-                // 申报金额与发票不符属于账实不符重大风险，合规评分严禁高于 40 分！
                 auditResult.complianceScore = Math.min(Number(auditResult.complianceScore) || 40, 40);
-                if (!auditResult.details) auditResult.details = {};
-                auditResult.details.amountMatch = false;
-                auditResult.details.amountDiff = amountDiff;
-                auditResult.details.declaredAmount = declaredAmount;
-                auditResult.details.invoiceAmount = invoiceAmount;
-                if (!Array.isArray(auditResult.anomalyList)) {
-                    auditResult.anomalyList = [];
-                }
-                const amountMismatchDesc = `申报金额 (￥${declaredAmount.toFixed(2)}) 与发票票面总金额 (￥${invoiceAmount.toFixed(2)}) 严重不符，相差 ￥${amountDiff.toFixed(2)}！`;
-                if (!auditResult.anomalyList.some(a => a.type === 'amount_mismatch' || a.description?.includes('金额'))) {
-                    auditResult.anomalyList.unshift({
-                        type: 'amount_mismatch',
-                        severity: 'high',
-                        description: amountMismatchDesc,
-                        suggestion: '请核实发票凭证是否漏传，或修改报销申报金额使其与实际票面总额完全一致',
-                    });
+                if (auditResult.details) {
+                    auditResult.details.amountMatch = false;
+                    auditResult.details.amountDiff = amountDiff;
+                    auditResult.details.declaredAmount = declaredAmount;
+                    auditResult.details.invoiceAmount = invoiceAmount;
                 }
             }
 
-            // 代码级安全兜底铁律 2：若工具发现重复报销或假税号，无论大模型如何给分，必须强制一票否决！
+            // 2. 致命合规欺诈底线（重复报销、假税号、购买方抬头不符）：强制一票否决，合规分上限 20
             if (toolResults?.hasCriticalFraud) {
-                const originalAiSummary = auditResult.summary;
                 auditResult.pass = false;
-                auditResult.complianceScore = Math.min(auditResult.complianceScore, 20);
+                auditResult.complianceScore = Math.min(Number(auditResult.complianceScore) || 20, 20);
                 if (auditResult.details) auditResult.details.riskLevel = 'HIGH';
-                const fraudDesc = (toolResults.fraudAlerts && toolResults.fraudAlerts.length > 0)
-                    ? toolResults.fraudAlerts.join('；')
-                    : '检测到发票重复报销或伪造假税号重大风险！';
-                
-                // 🌟 同时展示系统安全拦截结论与大模型原本说的话，绝不粗暴抹掉 AI 真实原话
-                auditResult.summary = `【严重高危-安全网否决】${fraudDesc} (🤖 AI原审意见: ${originalAiSummary})`;
-                for (const fraud of toolResults.fraudAlerts || []) {
-                    if (!auditResult.anomalyList.some(a => a.description === fraud)) {
-                        auditResult.anomalyList.unshift({
-                            type: fraud.includes('重复') ? 'duplicate_invoice' : 'invalid_tax_code',
-                            severity: 'high',
-                            description: fraud,
-                            suggestion: '发票涉嫌严重虚假/重复报销，一票否决并转内控调查',
-                        });
-                    }
-                }
             }
 
-            // 🚨 代码级安全兜底铁律 3：发票严重超期时效红线
-            // 若发票严重超期 (>90天)，无论大模型如何给分，初审绝不能给 pass，且合规分严禁超过 60 分！
+            // 3. 发票严重跨期时效底线 (>90天)：强制拦截，合规分上限 60
             if (toolResults?.hasOverdue) {
                 auditResult.pass = false;
                 auditResult.complianceScore = Math.min(Number(auditResult.complianceScore) || 50, 60);
                 if (auditResult.details) auditResult.details.hasOverdue = true;
-                if (!Array.isArray(auditResult.anomalyList)) {
-                    auditResult.anomalyList = [];
-                }
-                const overdueDesc = toolResults.overdueChecks?.[0]?.message || `单据发票已跨期超期 ${toolResults.maxOverdueDays} 天 (企业规定报销时效 ≤ 90 天)`;
-                if (!auditResult.anomalyList.some(a => a.type === 'overdue_invoice' || a.description?.includes('超期'))) {
-                    auditResult.anomalyList.push({
-                        type: 'overdue_invoice',
-                        severity: 'medium',
-                        description: overdueDesc,
-                        suggestion: '发票开票严重超期违规，需专人特批放行并说明业务延期事由后方可报销',
-                    });
-                }
             }
 
             // 🌟 若无任何异常项，赋予智能体自解释的标准核验总结 (供通用审批组件展示，解耦前端)
@@ -679,10 +679,11 @@ ${toolEvidenceText}
      */
     private async hitlOverdueGateNode(state: InvoiceAuditState): Promise<Partial<InvoiceAuditState>> {
         const hasOverdue = state.toolResults?.hasOverdue;
+        const hasCriticalFraud = state.toolResults?.hasCriticalFraud;
         const specialApproval = state.specialApproval;
 
-        // 如果发票未超期，或者已经获得了特批决定，直接顺畅进入终评
-        if (!hasOverdue || specialApproval) {
+        // 如果发票未超期，或者已经获得了特批决定，或者命中严重欺诈/抬头不符（直接进入终审否决不予特批），直接顺畅进入终评
+        if (!hasOverdue || specialApproval || hasCriticalFraud) {
             return { isSuspended: false, status: 'running' };
         }
 
@@ -811,11 +812,18 @@ ${toolEvidenceText}
                 : (toolResults.summaryNotes || []).filter(n => n.includes('重复') || n.includes('假税号') || n.includes('违规'));
 
             for (const note of actualAlerts) {
+                const anomalyType = note.includes('重复')
+                    ? 'duplicate_invoice'
+                    : note.includes('抬头')
+                    ? 'buyer_mismatch'
+                    : 'invalid_tax_code';
                 anomalies.push({
-                    type: note.includes('重复') ? 'duplicate_invoice' : 'invalid_tax_code',
+                    type: anomalyType,
                     severity: 'high',
                     description: note,
-                    suggestion: '发票涉嫌重大虚假/重复报销舞弊，一票否决并转内控调查',
+                    suggestion: note.includes('抬头')
+                        ? '发票购买方抬头非本公司法定全称或税号不符，无法在税前扣除，请联系开票方换开发票'
+                        : '发票涉嫌重大虚假/重复报销舞弊，一票否决并转内控调查',
                 });
             }
         }
@@ -1004,14 +1012,14 @@ ${toolEvidenceText}
             if (typeof (pdfParseModule as any).PDFParse === 'function') {
                 const parser = new (pdfParseModule as any).PDFParse({ data: dataBuffer });
                 const res = await parser.getText();
-                return (res.text || '').replace(/\s+/g, ' ').trim();
+                return this.cleanPdfText(res.text || '');
             }
 
             // 针对 pdf-parse v1.x (函数式直接调用)
             const pdfParseFn = (pdfParseModule as any).default || pdfParseModule;
             if (typeof pdfParseFn === 'function') {
                 const data = await pdfParseFn(dataBuffer);
-                return (data.text || '').replace(/\s+/g, ' ').trim();
+                return this.cleanPdfText(data.text || '');
             }
 
             return '';
@@ -1019,6 +1027,17 @@ ${toolEvidenceText}
             console.warn('⚠️ [PDF提取] 解析发生异常:', err.message);
             return '';
         }
+    }
+
+    /**
+     * 规范化 PDF 提取的文本：保留有语义的换行排版，去除连续空行与多余空格
+     */
+    private cleanPdfText(text: string): string {
+        return (text || '')
+            .split(/[\r\n]+/)
+            .map(line => line.replace(/[ \t]+/g, ' ').trim())
+            .filter(Boolean)
+            .join('\n');
     }
 
     /**

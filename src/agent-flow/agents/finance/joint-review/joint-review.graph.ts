@@ -160,7 +160,6 @@ export class JointReviewAgentGraph implements IAgentGraph {
 
         // 2. 木桶短板: 取两路最低分作为整单综合风控分
         const complianceScore = Math.min(invScore, budScore);
-        const riskScore = complianceScore;
 
         // 3. summary 拼接: 不通过的一路显式标注, 让审批人一眼定位问题源
         const invTag = invPass ? '' : '【发票分支不通过】';
@@ -197,15 +196,10 @@ export class JointReviewAgentGraph implements IAgentGraph {
             executedAt: new Date().toISOString(),
         };
 
-        // 7. details: 保留两路完整结果 + 关键回填字段
-        //    🌟 必须含顶层 invoices / totalInvoiceAmount,
-        //    否则 logic-flow.service.ts processTargetNode L571/L605 取不到, formData.amount 与 formData.invoices 不注入
+        // 7. details: 保留两路专员的完整审查结果与元数据
         const details = {
-            invoice: inv,                    // 发票专员完整结果对象
-            budget: bud,                     // 预算专员完整结果对象
-            totalInvoiceAmount: inv?.details?.totalInvoiceAmount,  // 供 processTargetNode 回填 amount/totalAmount
-            invoices: inv?.details?.invoices,                        // 供 processTargetNode 注入 formData.invoices
-            declaredAmount: bud?.details?.declaredAmount,            // 冗余备用
+            invoice: inv,
+            budget: bud,
             executionMode: 'parallel_langgraph',
             agentRoles: ['finance:invoice_audit', 'finance:budget_control'],
             parallelBranchScores: { invoice: invScore, budget: budScore },
@@ -272,8 +266,6 @@ export class JointReviewAgentGraph implements IAgentGraph {
             details: {
                 invoice: resumedInvoice,
                 budget: budgetResult,
-                totalInvoiceAmount: resumedInvoice?.details?.totalInvoiceAmount,
-                invoices: resumedInvoice?.details?.invoices || formData.invoices,
                 specialApproval: resumedInvoice?.specialApproval,
                 executionMode: 'parallel_langgraph_resumed',
             },

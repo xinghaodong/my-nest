@@ -33,16 +33,21 @@ export const InvoiceAuditAnnotation = Annotation.Root({
         taxCode?: string;
         sellerName?: string;
         invoiceDate?: string;
+        buyerName?: string;
+        buyerTaxCode?: string;
     }>>(),
 
-    // 确定性工具核验证据 (GB 32100 统一社会信用代码校验、数据库查重、连号排查、超期排查)
+    // 确定性工具核验证据 (GB 32100 统一社会信用代码校验、数据库查重、连号排查、超期排查、购买方抬头校验)
     toolResults: Annotation<{
         taxCodeChecks?: any[];
         duplicationChecks?: any[];
         consecutiveChecks?: any[];
         overdueChecks?: any[];
+        buyerChecks?: any[];
         hasCriticalFraud?: boolean;
         hasOverdue?: boolean;
+        hasBuyerMismatch?: boolean;
+        buyerMismatchDetail?: string;
         maxOverdueDays?: number;
         summaryNotes?: string[];
         fraudAlerts?: string[];

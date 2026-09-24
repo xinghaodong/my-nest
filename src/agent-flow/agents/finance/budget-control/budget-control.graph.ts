@@ -112,10 +112,18 @@ export class BudgetControlAgentGraph implements IAgentGraph {
 你必须直接输出纯 JSON 字符串，绝不要使用 Markdown 代码块（如不要输出 \`\`\`json ），不要输出任何开场白或解释。
 JSON 格式规范如下：
 {
-  "complianceScore": 95,
-  "pass": true,
+  "complianceScore": <0-100的整数，超预算时必须低于50>,
+  "pass": <true或false，超预算时必须为false>,
   "summary": "一句话审核结论（必须包含部门名称、剩余额度、本次金额是否在预算范围内、准予或不准予列支）",
   "reasonCheck": "详细预算占用分析与内控意见（如已占用百分比、支出后余量）",
+  "anomalyList": [
+    {
+      "type": "budget_exceeded",
+      "severity": "high",
+      "description": "具体超额违规事实描述（含具体超支金额）",
+      "suggestion": "处置建议（如需部门总监追加特批）"
+    }
+  ],
   "isOverBudget": false,
   "riskLevel": "LOW",
   "suggestions": ["给审批人或申请人的建议1", "建议2"]
@@ -136,7 +144,7 @@ JSON 格式规范如下：
 - 报销事由: ${state.formData?.reason || state.formData?.remark || '业务日常报销'}
 
 【内控标准】
-1. 若 申报金额 > 剩余预算 (已超标)，必须判定 pass: false，合规分 50 以下，riskLevel 为 "HIGH"，明确拦截；
+1. 若 申报金额 > 剩余预算 (已超标)，必须判定 pass: false，合规分 50 以下，riskLevel 为 "HIGH"，在 anomalyList 中明确指出超额金额；
 2. 若 支出占用剩余预算 > 80%，判定 pass: true，合规分 80，riskLevel 为 "MEDIUM"，提出预警建议；
 3. 若 预算充足，判定 pass: true，合规分 95 以上，riskLevel 为 "LOW"，准予支出。
 
@@ -152,19 +160,22 @@ JSON 格式规范如下：
 
             let pass = typeof parsed.pass === 'boolean' ? parsed.pass : !isOver;
             let complianceScore = typeof parsed.complianceScore === 'number' ? parsed.complianceScore : (pass ? 95 : 50);
-            let summary = parsed.summary || (pass ? `【部门预算审核通过】[${department}] 预算额度充裕，准予列支。` : `【部门预算超额拦截】[${department}] 申报金额已超出可用预算！`);
-            let reasonCheck = parsed.reasonCheck || `申报金额 ￥${declaredAmount}，本季剩余 ￥${remainingBudget}。`;
+            const summary = parsed.summary || (pass ? `【部门预算审核通过】[${department}] 预算额度充裕，准予列支。` : `【部门预算超额拦截】[${department}] 申报金额已超出可用预算！`);
+            const reasonCheck = parsed.reasonCheck || `申报金额 ￥${declaredAmount}，本季剩余 ￥${remainingBudget}。`;
+            let anomalyList = Array.isArray(parsed.anomalyList) ? parsed.anomalyList : [];
 
-            // 🌟 核心工程铁律 (防模型数学幻觉安全网)：
-            // 真实企业财务严禁盲信小模型的数学大小比较！
-            // 若事实核验申报金额已超过剩余预算 (isOver === true)，无论任何大模型输出什么，代码级强制一票否决！
+            // 🚨 核心安全网：超预算红线只做底线门禁拦截 (Pass/Score)，绝不暴力篡改大模型生成的 summary 与 reasonCheck
             if (isOver) {
-                const overAmount = (declaredAmount - remainingBudget).toFixed(2);
                 pass = false;
                 complianceScore = Math.min(complianceScore, 40);
-                summary = `【部门预算超额拦截-安全网强制否决】[${department}] 申报金额 ￥${declaredAmount} 已超出本季度剩余预算 ￥${remainingBudget} (超额 ￥${overAmount})！`;
-                reasonCheck = `【事实拦截】申报金额 ￥${declaredAmount} > 剩余预算 ￥${remainingBudget} (占用率 ${usageRatio}%)，触发内控红线！(🤖 模型原审: ${parsed.summary || '无'})`;
-                console.warn(`🚨 [安全网拦截] 申报金额 ￥${declaredAmount} 超出部门预算 ￥${remainingBudget}，代码级强制一票否决！`);
+                if (!anomalyList.some(a => a.type === 'budget_exceeded' || a.description?.includes('超'))) {
+                    anomalyList.unshift({
+                        type: 'budget_exceeded',
+                        severity: 'high',
+                        description: `报销申报金额 (￥${declaredAmount}) 超出部门季度剩余可用预算 (￥${remainingBudget})，超额 ￥${(declaredAmount - remainingBudget).toFixed(2)}`,
+                        suggestion: '需提交部门总监进行追加预算特批',
+                    });
+                }
             }
 
             const realSpeech = {
@@ -182,7 +193,7 @@ JSON 格式规范如下：
                 complianceScore,
                 summary,
                 checkSummary: '部门预算及可用额度核验通过，报销金额在部门可支配预算配额内。',
-                anomalyList: isOver ? [{ type: 'budget_exceeded', severity: 'high', description: `报销金额超出可用预算 ￥${(declaredAmount - remainingBudget).toFixed(2)}` }] : [],
+                anomalyList,
                 details: {
                     department,
                     declaredAmount,

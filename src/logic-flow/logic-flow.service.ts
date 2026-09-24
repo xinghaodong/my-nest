@@ -151,7 +151,6 @@ export class LogicFlowService {
         if (aiHistory?.auditResult) {
             evalFormData.complianceScore = aiHistory.auditResult.complianceScore;
             evalFormData.ai_pass = aiHistory.auditResult.pass;
-            evalFormData.riskScore = aiHistory.auditResult.complianceScore;
         }
 
         // 按实例的 formData 计算出“实际执行路径”，包含开始、diamond、rect、结束（按顺序）
@@ -180,28 +179,7 @@ export class LogicFlowService {
                             approverName: specialHistory.userName,
                         } : null);
 
-                        // 🌟 尊重客观审计事实：分数永远保持 AI 模型的真实客观评分，特批绝不篡改客观合规得分！
-                        if (specialApproval && auditResult) {
-                            if (specialApproval.approved) {
-                                if (!auditResult.anomalyList || auditResult.anomalyList.length === 0) {
-                                    auditResult.anomalyList = [{
-                                        type: 'overdue_invoice',
-                                        severity: 'medium',
-                                        description: '发票开票严重超期 (已获特批放行豁免)',
-                                        suggestion: `特批人[${specialApproval.approverName || '特批复核人'}]已特批放行: ${specialApproval.comment || '同意报销'}`
-                                    }];
-                                }
-                            } else {
-                                if (!auditResult.anomalyList || auditResult.anomalyList.length === 0) {
-                                    auditResult.anomalyList = [{
-                                        type: 'overdue_invoice',
-                                        severity: 'high',
-                                        description: `发票开票严重超期且特批人驳回: ${specialApproval.comment || '超期不予报销'}`,
-                                        suggestion: '特批人驳回特批申请，单据不予报销'
-                                    }];
-                                }
-                            }
-                        }
+
 
                         const isSuspended = Boolean(
                             (aiHistory?.isSuspended || instance.formData?._isSuspended) &&
@@ -667,23 +645,27 @@ export class LogicFlowService {
             return { id: targetNode.id, assignee };
         } else if (targetNode.type === 'ai-agent') {
             console.log('🤖 [流程引擎] 流转至通用 AI 智能体审查节点:', targetNode.id, targetNode.text?.value);
-            // 自动提取发票附件文件列表
-            let invoiceFiles: any[] = [];
+            // 自动提取表单附件文件列表（支持任意审批业务的附件上传）
+            let attachmentFiles: any[] = [];
             for (const key of Object.keys(formData)) {
                 if (Array.isArray(formData[key]) && formData[key].length > 0 && (formData[key][0]?.filePath || formData[key][0]?.url)) {
-                    invoiceFiles = formData[key];
+                    attachmentFiles = formData[key];
                     break;
                 }
             }
 
             const agentRole = targetNode.properties?.agentRole || 'finance:invoice_audit';
             const riskThreshold = Number(targetNode.properties?.riskThreshold) || 80;
+
+            // 尝试解析申请人所属法人公司信息（若表单未携带）
+            await this.resolveApplicantCompanyInfo(formData);
+
             let auditResult: any = null;
             try {
                 auditResult = await this.agentFlowService.executeAgentAudit(agentRole, {
                     instanceId: instanceId || 0,
                     formData,
-                    files: invoiceFiles,
+                    files: attachmentFiles,
                     riskThreshold,
                 });
             } catch (err) {
@@ -693,24 +675,9 @@ export class LogicFlowService {
                     pass: false,
                     summary: `AI 审查 [${agentRole}] 执行异常，转入人工复核`,
                     anomalyList: [{ type: 'other', severity: 'high', description: `AI执行失败: ${err.message}` }],
-                    details: { invoiceCount: invoiceFiles.length, declaredAmount: Number(formData.amount || 0), reasonCheck: '待人工复核', riskLevel: 'HIGH' },
+                    details: { fileCount: attachmentFiles.length, reasonCheck: '待人工复核', riskLevel: 'HIGH' },
                 };
             }
-
-            // 0. 发票初审提取的金额与用户申报金额规范化处理
-            const extractedAmount = auditResult.details?.totalInvoiceAmount ?? auditResult.details?.declaredAmount;
-            const declared = Number(formData.totalAmount || formData.amount || 0);
-            if (declared > 0) {
-                // 用户已填报金额：amount 与 totalAmount 保持统一为用户申报金额
-                if (formData.amount === undefined || formData.amount === 0) formData.amount = declared;
-                if (formData.totalAmount === undefined || formData.totalAmount === 0) formData.totalAmount = declared;
-            } else if (extractedAmount) {
-                // 用户完全未填报金额：以发票提取金额兜底填报
-                formData.amount = extractedAmount;
-                formData.totalAmount = extractedAmount;
-            }
-            // 将发票实际提取的票面总额独立记录在 invoiceActualAmount，绝不混淆或覆盖用户申报金额！
-            formData.invoiceActualAmount = extractedAmount;
 
             // 将 AI 审查结果注入 formData：
             // 1. 全局合规通过状态：采用【多智能体一票否决制】(任何一个 Agent 判定不合规，全局 ai_pass 立即锁定为 false)
@@ -726,7 +693,6 @@ export class LogicFlowService {
             } else {
                 formData.complianceScore = Math.min(Number(formData.complianceScore), Number(auditResult.complianceScore));
             }
-            formData.riskScore = formData.complianceScore;
 
             // 3. 角色专有字段（便于多 Agent 串行精细化条件: condition: "finance_invoice_audit_score >= 80"）
             const safeRoleKey = agentRole.replace(/[:\-]/g, '_');
@@ -736,11 +702,6 @@ export class LogicFlowService {
             // 4. 节点专属字段（便于针对特定节点条件: condition: "node_xxx_score >= 80"）
             const safeNodeKey = String(targetNode.id).replace(/[:\-]/g, '_');
             formData[`${safeNodeKey}_score`] = auditResult.complianceScore;
-
-            // 5. 将结构化提取的发票明细与查重凭证持久化写入 formData（供历史跨单据精准索引）
-            if (auditResult.details?.invoices && Array.isArray(auditResult.details.invoices)) {
-                formData.invoices = auditResult.details.invoices;
-            }
 
             // 🌟 6. 将【AI 真实说的话】(结构化总结、原因、建议及原始报文) 进行防覆盖聚合
             const realSpeech = auditResult.aiRealSpeech || {
@@ -885,29 +846,43 @@ export class LogicFlowService {
         );
     }
 
-    // 辅助函数：评估条件表达式（沙箱安全版，彻底杜绝 "xxx is not defined"）
+    /**
+     * 辅助函数：根据表单申请人自动解析所属法人公司（仅当表单中尚未携带 _companyInfo 时）
+     */
+    private async resolveApplicantCompanyInfo(formData: Record<string, any>): Promise<void> {
+        if (!formData || formData._companyInfo) return;
+        try {
+            const applicantId = Number(formData.userId || formData.applicantId);
+            if (!applicantId) return;
+            const user = await this.internalusersService.findOne(applicantId);
+            if (user?.organid) {
+                const orgService = (this.internalusersService as any).orgManagementService;
+                if (orgService) {
+                    const company = await orgService.findCompanyByOrgId(user.organid);
+                    if (company) {
+                        formData._companyInfo = {
+                            companyName: company.legalEntityName || company.organame,
+                            taxCode: company.taxCode,
+                            organid: company.organid,
+                        };
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ [流程引擎] 获取申请人所属公司主体异常:', e.message);
+        }
+    }
+
+    // 辅助函数：评估条件表达式（纯通用沙箱环境，自动数值类型转换 + 杜绝未定义变量抛错）
     private evaluateCondition(condition: string, formData: Record<string, any>): boolean {
         if (!condition || !condition.trim()) {
             console.warn('⚠️ [条件评估] 条件表达式缺失，默认返回 false');
             return false;
         }
 
-        const data: Record<string, any> = { ...formData };
-        // 智能别名兼容：自动互转 amount 与 totalAmount
-        if (data.totalAmount !== undefined && data.amount === undefined) {
-            data.amount = data.totalAmount;
-        } else if (data.amount !== undefined && data.totalAmount === undefined) {
-            data.totalAmount = data.amount;
-        }
-
-        // 默认预设常用流转变量（若尚未产生或未填写），防止 AI 异步流转中尚未生成指标时抛错
-        if (data.complianceScore === undefined) data.complianceScore = 0;
-        if (data.riskScore === undefined) data.riskScore = 0;
-        if (data.ai_pass === undefined) data.ai_pass = false;
-
         try {
-            // 使用 Proxy 拦截所有变量访问，杜绝 "xxx is not defined"
-            const sandbox = new Proxy(data, {
+            // 使用 Proxy 拦截所有变量访问，无论访问 days、totalAmount 还是任意业务字段，未填时安全返回 undefined，彻底杜绝 "xxx is not defined" 错误
+            const sandbox = new Proxy(formData || {}, {
                 has() {
                     return true;
                 },
@@ -915,16 +890,12 @@ export class LogicFlowService {
                     if (typeof prop !== 'string') return undefined;
                     if (prop in target) {
                         const val = target[prop];
+                        // 字符串纯数字自动转为 Number，支持表达式中的数值计算与大小比较（如 "3" >= 3）
                         if (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '') {
                             return Number(val);
                         }
                         return val;
                     }
-                    // 对常见但未计算的指标给予安全兜底值
-                    if (['complianceScore', 'riskScore', 'amount', 'totalAmount'].includes(prop)) {
-                        return 0;
-                    }
-                    if (prop === 'ai_pass') return false;
                     return undefined;
                 },
             });
@@ -1103,35 +1074,10 @@ export class LogicFlowService {
         // 🌟 尊重客观打分：特批是行政放行决策，永远不篡改 AI 原始客观评分
         const originalScore = Number(resumedAuditResult?.complianceScore ?? instance.formData.complianceScore ?? 50);
         instance.formData.complianceScore = originalScore;
-        instance.formData.riskScore = originalScore;
 
         if (resumedAuditResult) {
             resumedAuditResult.complianceScore = originalScore;
             (resumedAuditResult as any).score = originalScore;
-            if (dto.approved) {
-                if (!resumedAuditResult.anomalyList || resumedAuditResult.anomalyList.length === 0) {
-                    resumedAuditResult.anomalyList = [{
-                        type: 'overdue_invoice',
-                        severity: 'medium',
-                        description: '发票开票严重超期 (已获特批放行豁免)',
-                        suggestion: `特批人[${currentUser.userName || '特批复核人'}]已特批放行: ${dto.comment || '同意报销'}`
-                    }];
-                }
-            } else {
-                if (!resumedAuditResult.anomalyList) resumedAuditResult.anomalyList = [];
-                if (!resumedAuditResult.anomalyList.some(a => a.severity === 'high')) {
-                    resumedAuditResult.anomalyList.unshift({
-                        type: 'overdue_invoice',
-                        severity: 'high',
-                        description: `发票严重超期且特批人驳回: ${dto.comment || '超期不予报销'}`,
-                        suggestion: '特批人驳回特批申请，单据不予报销'
-                    });
-                }
-            }
-        }
-
-        if (resumedAuditResult?.details?.invoices) {
-            instance.formData.invoices = resumedAuditResult.details.invoices;
         }
 
         // 同步更新 aiAuditReports
