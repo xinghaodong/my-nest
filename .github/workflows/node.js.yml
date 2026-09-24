@@ -24,13 +24,13 @@ jobs:
             - name: Build project
               run: npm run build
 
-            # 👇 创建部署包（包含所有运行所需文件）
+            # 创建部署包
             - name: Prepare deployment package
               run: |
                   mkdir -p deploy-package
                   cp -r node_modules dist package.json nest-cli.json deploy-package/
 
-            # 👇 打包成 tar.gz（避免 scp 路径问题）
+            # 打包成 tar.gz（避免 scp 路径问题）
             - name: Create tarball
               run: |
                   cd deploy-package
@@ -71,13 +71,13 @@ jobs:
                   script: |
                       cd /var/www/home1
 
-                      # 🔥 清理旧文件（只删关键文件，保留其他如 ai-com/ 等）
+                      # 清理旧文件
                       rm -rf dist node_modules package.json nest-cli.json 2>/dev/null || true
 
                       # 解压新版本
                       tar -xzf deploy.tar.gz
 
-                      # 安全生成 .env直接覆盖本地的env
+                      # 安全生成 .env.production到服务器里
                       cat > .env.production << 'EOF'
                       PORT=3000
                       DB_TYPE=mysql

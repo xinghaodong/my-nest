@@ -14,7 +14,7 @@ export class ApprovalInstance {
     @Column({ type: 'json', nullable: true })
     formData: Record<string, any>; // { startDate: "2025-09-15", days: "1.0", ... }
 
-    @Column({ default: '1' }) // 1=待审批, 2=通过, 3=拒绝
+    @Column({ default: '0' }) // 0=AI审核中, 1=待审批, 2=通过, 3=拒绝
     status: string;
 
     @Column({ length: 255, nullable: true })

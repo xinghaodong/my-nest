@@ -26,6 +26,7 @@ export class ai_testservice {
     private collection: any;
     private pdfEmbeddingFunction: any;
     private readonly embeddingModel = 'nomic-embed-text'; // 可改成你喜欢的 embedding 模型
+    private summaryCollection: any; // Layer 1: 文件摘要集合
     private ollamaClient: Ollama;
     private client: OpenAI;
     public activeControllers = new Map<string, AbortController>();
@@ -78,7 +79,7 @@ export class ai_testservice {
             host: `http://${process.env.OLLAMA_HOST || '127.0.0.1'}:11434`,
         });
         this.chromaClient = new ChromaClient({
-            host: 'localhost',
+            host: '127.0.0.1',
             port: 8000,
             ssl: false,
         });
@@ -92,6 +93,18 @@ export class ai_testservice {
                 return response.embeddings; // 返回 number[][]
             },
         };
+    }
+
+    // 获取摘要集合（Layer 1）
+    private async getSummaryCollection() {
+        if (!this.summaryCollection) {
+            this.summaryCollection = await this.chromaClient.getOrCreateCollection({
+                name: 'file_summaries', // 专门存文件摘要
+                embeddingFunction: this.pdfEmbeddingFunction,
+                metadata: { 'hnsw:space': 'cosine' },
+            });
+        }
+        return this.summaryCollection;
     }
     async getCurrentWeather(args) {
         let city = args?.location || args;
@@ -162,7 +175,8 @@ export class ai_testservice {
                 // 简单分块（每 1000 字符一块）
                 const chunkSize = 1000;
                 const chunks: string[] = [];
-                for (let i = 0; i < fullText.length; i += chunkSize) {
+                const overlap = 200;
+                for (let i = 0; i < fullText.length; i += chunkSize - overlap) {
                     chunks.push(fullText.substring(i, i + chunkSize));
                 }
 
@@ -170,7 +184,7 @@ export class ai_testservice {
                     results.push({ fileId: savedFile.id, status: 'empty' });
                     continue;
                 }
-
+                console.log('使用 Ollama 生成 embeddings');
                 // 4. 使用 Ollama 生成 embeddings
                 const embedResponse = await this.ollamaClient.embed({
                     model: this.embeddingModel,
@@ -178,7 +192,32 @@ export class ai_testservice {
                 });
                 const embeddings = embedResponse.embeddings;
 
-                // 5. 存入 Chroma
+                // ---------------- Layer 1: 生成并存储文件摘要 ----------------
+                // 生成摘要（取前4000字符给LLM读，生成简短描述）
+                const summaryPrompt = `请简要总结以下文件内容，作为检索索引。重点描述文件包含的关键主题和实体。\n\n内容前4000字：\n${fullText.substring(0, 4000)}`;
+                const summaryResponse = await this.ollamaClient.chat({
+                    model: 'gemma2:2b', // 使用轻量级模型生成摘要
+                    messages: [{ role: 'user', content: summaryPrompt }],
+                    stream: false,
+                });
+                const summaryText = summaryResponse.message.content;
+                console.log(`文件 [${file.originalname}] 摘要:`, summaryText);
+
+                // 存入 Summary Collection
+                const summaryCollection = await this.getSummaryCollection();
+                const summaryEmbed = await this.ollamaClient.embed({
+                    model: this.embeddingModel,
+                    input: summaryText,
+                });
+                await summaryCollection.add({
+                    ids: [`file_summary_${savedFile.id}`],
+                    embeddings: summaryEmbed.embeddings,
+                    documents: [summaryText],
+                    metadatas: [{ fileId: savedFile.id, fileName: file.originalname }],
+                });
+                // -------------------------------------------------------------
+
+                // 5. 存入 Chroma (Chunks)
                 const collection = await this.getCollection();
                 const ids = chunks.map((_, idx) => `${savedFile.id}_chunk_${idx}`);
                 await collection.add({
@@ -198,7 +237,78 @@ export class ai_testservice {
             }
         }
 
-        return { message: 'PDF 处理完成', results };
+        return { message: 'PDF 处理完成（已生成摘要路由）', results };
+    }
+
+    // ---------------- Layer 1: 文件路由 (File Routing) ----------------
+    async routeQueryToFiles(query: string): Promise<number[]> {
+        console.log('--- Layer 1: File Routing ---');
+        try {
+            const summaryCollection = await this.getSummaryCollection();
+            const queryEmbed = await this.ollamaClient.embed({
+                model: this.embeddingModel,
+                input: query,
+            });
+
+            // 检索最相关的 3 个文件
+            const results = await summaryCollection.query({
+                queryEmbeddings: queryEmbed.embeddings,
+                nResults: 3,
+            });
+
+            const relevantFileIds = new Set<number>();
+            if (results.metadatas[0]) {
+                results.metadatas[0].forEach((meta: any, idx) => {
+                    // 相似度阈值过滤（距离越小越相似，cosine distance）
+                    if (results.distances[0][idx] < 0.6) {
+                        console.log(`命中文件: ${meta.fileName} (ID: ${meta.fileId}), 距离: ${results.distances[0][idx]}`);
+                        relevantFileIds.add(meta.fileId);
+                    }
+                });
+            }
+            return Array.from(relevantFileIds);
+        } catch (error) {
+            console.error('File Routing Error:', error);
+            return []; // 如果路由失败，降级为搜索所有
+        }
+    }
+
+    // ---------------- Layer 3: 结构化压缩 (Structured Compression) ----------------
+    async compressContext(query: string, rawChunks: string[]): Promise<string> {
+        if (rawChunks.length === 0) return '';
+        console.log('--- Layer 3: Structured Compression ---');
+
+        const contextBlock = rawChunks.join('\n\n---\n\n');
+        const compressionPrompt = `
+你是一个专业的RAG生成助手。你的任务是根据用户的查询，从以下检索到的原始片段中提取关键对答信息，并进行结构化整理。
+不要直接复制原文，要提炼核心事实。如果片段中没有相关信息，请忽略。
+
+用户查询: "${query}"
+
+原始片段:
+${contextBlock}
+
+请输出“结构化上下文”：`;
+        console.log('压缩上下文:', compressionPrompt);
+        try {
+            const response = await this.ollamaClient.chat({
+                model: 'gemma2:2b', // 用一个小模型做中间处理，速度快
+                messages: [{ role: 'user', content: compressionPrompt }],
+                stream: true,
+            });
+            let compressed = '';
+            for await (const chunk of response) {
+                console.log('压缩chunk:', chunk);
+                if (chunk.message?.content) {
+                    compressed += chunk.message.content;
+                }
+            }
+            console.log('压缩后的上下文长度:', compressed.length);
+            return compressed;
+        } catch (error) {
+            console.error('Compression Error:', error);
+            return contextBlock; // 降级：直接返回原文
+        }
     }
 
     shouldEnableWebSearch(prompt: string, conversationHistory: any[]): boolean {
@@ -312,40 +422,70 @@ export class ai_testservice {
                     res.write(`data: ${JSON.stringify({ status: 'search_failed', message: '联网搜索失败，将仅使用本地知识库回答' })}\n\n`);
                 }
             }
-
             let ragContext = '';
-
             // 新增：如果启用 RAG，则检索相关片段
             if (useRag == '1') {
                 try {
+                    // --- Layer 1: File Routing ---
+                    const targetFileIds = await this.routeQueryToFiles(prompt);
+                    let whereFilter = undefined;
+
+                    if (targetFileIds.length > 0) {
+                        console.log(`路由定位到 ${targetFileIds.length} 个文件:`, targetFileIds);
+                        // ChromaDB where filter: { key: { $in: [val1, val2] } }
+                        // 注意：Chroma 的 where 过滤 fileId 必须是存储时的类型。
+                        // 我们存的是 number, 但 chroma metadata 有时处理 quirky。
+                        // 建议之前存的时候确认是 number。这里我们构建 $in 查询。
+                        if (targetFileIds.length === 1) {
+                            whereFilter = { fileId: targetFileIds[0] };
+                        } else {
+                            whereFilter = { fileId: { $in: targetFileIds } };
+                        }
+                    } else {
+                        console.log('未路由到特定文件，将进行全局检索 (Layer 1 Miss)');
+                    }
+
+                    // --- Layer 2: Chunk Retrieval (Filtered) ---
                     const collection = await this.getCollection();
                     const queryEmbed = await this.ollamaClient.embed({
                         model: this.embeddingModel,
                         input: prompt,
                     });
                     const queryEmbedding = queryEmbed.embeddings[0];
-
+                    console.log('queryEmbedding', queryEmbedding);
                     const results = await collection.query({
                         queryEmbeddings: [queryEmbedding],
-                        nResults: 4,
-                        include: ['documents', 'metadatas'],
+                        nResults: 20, // 检索多一点，给 Layer 3 挑选
+                        where: whereFilter, // 核心：加上文件过滤
+                        include: ['documents', 'metadatas', 'distances'],
                     });
 
+                    const rawChunks: string[] = [];
                     if (results.documents[0] && results.documents[0].length > 0) {
                         results.documents[0].forEach((doc: string, idx: number) => {
-                            const meta = results.metadatas[0][idx];
-                            ragContext += `【来源文件：${meta.source}】\n${doc}\n\n`;
+                            const distance = results.distances[0][idx];
+                            if (distance < 0.45) {
+                                // 放宽一点阈值，因为我们会做压缩
+                                const meta = results.metadatas[0][idx];
+                                rawChunks.push(`【来源：${meta.source}】\n${doc}`);
+                            }
                         });
+                    }
+
+                    // --- Layer 3: Structured Compression ---
+                    if (rawChunks.length > 0) {
+                        ragContext = await this.compressContext(prompt, rawChunks);
+                    } else {
+                        ragContext = '\n[知识库中未找到相关信息，使用普通对话]';
                     }
                 } catch (error) {
                     console.error('RAG 检索失败:', error);
-                    ragContext = '\n[注意：PDF 知识库暂时不可用]\n';
+                    ragContext = '\n[注意：PDF 知识库检索出错，将仅使用本地知识库回答]\n';
                 }
             }
 
-            // 构造 system prompt（在原有 searchContext 基础上追加 ragContext）
-            const systemContent = '你是一个智能助手，请使用中文回答。' + (searchContext ? searchContext : '') + (ragContext ? '\n\n[上传的 PDF 文档上下文]\n' + ragContext : '');
-
+            const systemContent = `请使用中文回答,` + ragContext;
+            console.log('systemContent:', ragContext);
             // 3. 构造消息
             const messages = [
                 {
@@ -358,6 +498,7 @@ export class ai_testservice {
             // 3. 调用 Ollama 的 chat 接口
             //  'http://localhost:11434/api/chat',
             const completion = await this.ollamaClient.chat({ model: model, messages, stream: true, signal } as any);
+            console.log('模型:', model);
             let sentenceBuffer = '';
 
             for await (const chunk of completion) {
@@ -366,12 +507,9 @@ export class ai_testservice {
                 }
                 console.log('chunk:', chunk);
                 if (chunk.message?.content) {
-                    // console.log('chunk:', chunk);
                     accumulatedResponse += chunk.message.content;
                     sentenceBuffer += chunk.message.content;
                     //  正常文字流
-                    // res.write(`data: ${JSON.stringify(accumulatedResponse)}\n\n`);
-                    // res.write(`data: ${JSON.stringify(chunk.message.content)}\n\n`);
                     if (chunk.message?.content) {
                         res.write(
                             `data: ${JSON.stringify({
@@ -418,6 +556,7 @@ export class ai_testservice {
             //     }
             // }
             if (accumulatedResponse) {
+                console.log('全量响应:', accumulatedResponse);
                 await this.saveChatRecord('assistant', accumulatedResponse, conversationId);
             }
             res.write('event: end\ndata: {}\n\n');

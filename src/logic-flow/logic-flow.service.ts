@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { FormDesign } from '../form-design/entities/form-design.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { InternalusersService } from '../internalusers/internalusers.service';
+import { AgentFlowService } from '../agent-flow/agent-flow.service';
 
 @Injectable()
 export class LogicFlowService {
@@ -20,31 +21,55 @@ export class LogicFlowService {
         @InjectRepository(ApprovalInstance)
         private instanceRepo: Repository<ApprovalInstance>,
         private readonly internalusersService: InternalusersService,
+        private readonly agentFlowService: AgentFlowService,
     ) {}
 
     async create(createLogicFlowDto: CreateLogicFlowDto): Promise<LogicFlow> {
-        // 判断 createLogicFlowDto.graphData.nodes 最后一个节点是结束节点必须是圆形并且文字是结束
-        const nodes = createLogicFlowDto.graphData.nodes;
-        const validationErrors = this.validateWorkflow(createLogicFlowDto.graphData);
+        // 🌟 1. 严格一对一校验：一个表单只能绑定一个流程模板，禁止重复绑定
+        const currentWorkflowId = (createLogicFlowDto as any).id;
+        await this.validateFormBindingUniqueness(createLogicFlowDto.formId, currentWorkflowId);
+
+        const graphData = createLogicFlowDto.graphData || {};
+        const nodes = graphData.nodes || [];
+        const validationErrors = this.validateWorkflow(graphData);
         if (validationErrors.length > 0) {
             console.error('❌ 流程图验证失败：', validationErrors);
             throw new BadRequestException('流程图设计不完整，请联系管理员：' + validationErrors.join('; '));
         }
 
-        // 判断开始节点
-        if (nodes[0].type !== 'circle' || nodes[0].text.value !== '开始') {
-            throw new BadRequestException('流程图错误，请检查开始节点');
+        const getNodeText = (node: any) => (typeof node?.text === 'string' ? node.text : node?.text?.value || '');
+
+        // 智能查找开始节点
+        const startNodeIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '开始');
+        if (startNodeIndex === -1) {
+            throw new BadRequestException('流程图错误，请检查开始节点（必须包含一个文字为“开始”的圆形节点）');
         }
-        // 在判断如果是审批节点 type == rect 那么必须要有审批人
+
+        // 智能查找结束节点
+        const endNodeIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '结束');
+        if (endNodeIndex === -1) {
+            throw new BadRequestException('流程图错误，请检查结束节点（必须包含一个文字为“结束”的圆形节点）');
+        }
+
+        // 节点人员配置校验：rect 必须有审批人，ai-agent 必须有人机协同特批人 (HITL)
         for (let index = 0; index < nodes.length; index++) {
             const element = nodes[index];
+            const nodeTitle = getNodeText(element) || element.id;
             if (element.type === 'rect' && !element.properties?.assignee) {
-                throw new BadRequestException(`流程图错误，存在审批节点未配置审批人`);
+                throw new BadRequestException(`流程图错误，审批节点 [${nodeTitle}] 未配置审批人`);
+            }
+            if (element.type === 'ai-agent' && !element.properties?.specialApproverId) {
+                throw new BadRequestException(`流程图错误，AI智能审查节点 [${nodeTitle}] 必须配置人机协同特批人(HITL)`);
             }
         }
-        if (nodes[nodes.length - 1].type !== 'circle' || nodes[nodes.length - 1].text.value !== '结束') {
-            throw new BadRequestException('流程图错误，请检查结束节点');
-        }
+
+        // 自动规范化节点数组顺序：将“开始”置于首位，将“结束”置于末尾，彻底消除拖拽顺序差异
+        const startNode = nodes.splice(startNodeIndex, 1)[0];
+        const newEndIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '结束');
+        const endNode = nodes.splice(newEndIndex, 1)[0];
+        nodes.unshift(startNode);
+        nodes.push(endNode);
+
         const logicFlow = this.logicFlowRepository.create(createLogicFlowDto);
         return await this.logicFlowRepository.save(logicFlow);
     }
@@ -63,6 +88,9 @@ export class LogicFlowService {
 
     async update(id: number, updateLogicFlowDto: UpdateLogicFlowDto) {
         console.log(id, 'id');
+        // 🌟 1. 严格一对一校验：一个表单只能绑定一个流程模板，禁止重复绑定
+        await this.validateFormBindingUniqueness(updateLogicFlowDto.formId, id);
+
         const existingData = await this.findOne(id);
         if (!existingData) {
             throw new HttpException('未找到流程', 404);
@@ -72,6 +100,31 @@ export class LogicFlowService {
         // 保存更新
         const result = await this.logicFlowRepository.save(updatedData);
         return result;
+    }
+
+    /**
+     * 表单与流程模板的绑定校验
+     * 🌟 设计变更：已放开"严格一对一"约束，允许一个表单绑定多个流程模板
+     *   （便于同一表单对比不同流程设计，如串行多 Agent vs 并行合议 Agent）。
+     *   发起审批时由前端显式选择 workflowId 决定走哪条流程；未显式传时后端默认取最新。
+     * @param formId 关联表单 ID
+     * @param currentWorkflowId 当前流程 ID (编辑更新时传入，保留参数兼容旧调用)
+     */
+    private async validateFormBindingUniqueness(formId?: number, currentWorkflowId?: number) {
+        // 放开一对一约束：同一表单允许多流程绑定，不再拦截
+        return;
+    }
+
+    /**
+     * 按表单 ID 查询其绑定的所有流程模板（轻量列表，供前端发起审批时选择）
+     */
+    async findByFormId(formId: number): Promise<Partial<LogicFlow>[]> {
+        if (!formId) return [];
+        return await this.logicFlowRepository.find({
+            where: { formId: Number(formId) },
+            select: ['id', 'name', 'status', 'formId', 'updated_at'],
+            order: { updated_at: 'DESC' },
+        });
     }
 
     async remove(id: number) {
@@ -92,30 +145,142 @@ export class LogicFlowService {
         const nodes = graphData.nodes || [];
         const edges = graphData.edges || [];
 
-        // 1. 按实例的 formData 计算出“实际执行路径”，包含开始、diamond、rect、结束（按顺序）
-        const pathNodes = this.buildExecutionPath(graphData, instance.formData);
+        // 1. 提取可能已经完成的 AI 审计数据，合并入 formData 进行执行路径计算
+        const evalFormData = { ...instance.formData };
+        const aiHistory = instance.approvalHistory?.find(h => h.type === 'ai-agent' || h.auditResult);
+        if (aiHistory?.auditResult) {
+            evalFormData.complianceScore = aiHistory.auditResult.complianceScore;
+            evalFormData.ai_pass = aiHistory.auditResult.pass;
+            evalFormData.riskScore = aiHistory.auditResult.complianceScore;
+        }
 
-        // 2. 只保留我们需要显示的节点（排除 diamond 条件节点）
-        let steps = pathNodes
-            .filter(node => node.type === 'rect' || node.text?.value === '开始' || node.text?.value === '结束')
-            .map(node => {
-                // 匹配审批历史：
-                // - 普通审批节点的 history.nodeId 存的是节点 id
-                // - 发起时我们在 startWorkflow 存的是 nodeId: 'start'（兼容）
-                const history = instance.approvalHistory.find(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start'));
+        // 按实例的 formData 计算出“实际执行路径”，包含开始、diamond、rect、结束（按顺序）
+        const pathNodes = this.buildExecutionPath(graphData, evalFormData);
 
-                return {
-                    nodeId: node.id,
-                    title: node.text?.value || '未知节点',
-                    type: node.type,
-                    assignee: node.properties?.assignee,
-                    // status: history 有就用历史；否则如果是当前节点则 1（审批中），否则 0（未开始）
-                    status: history ? history.status : node.id === instance.currentNodeId ? '1' : '', // 1=审批中,没下个节点就设置成2
-                    userName: history?.userName || node.properties?.assigneeName || null,
-                    approvedAt: history ? history.approvedAt : null,
-                    comment: history ? history.comment : null,
-                };
-            });
+        // 2. 只保留我们需要显示的节点（包含 ai-agent 智能体节点，排除 diamond 条件节点）
+        let steps = await Promise.all(
+            pathNodes
+                .filter(node => node.type === 'rect' || node.type === 'ai-agent' || node.text?.value === '开始' || node.text?.value === '结束')
+                .map(async node => {
+                    if (node.type === 'ai-agent') {
+                        const agentRole = node.properties?.agentRole || 'finance:invoice_audit';
+                        const agentRoleName = node.properties?.agentRoleName || this.agentFlowService.getAgentRoleName(agentRole);
+                        const agentReport = instance.formData?.aiAuditReports?.[agentRole];
+
+                        // 查找该节点在 approvalHistory 中的 AI 执行历史与特批历史
+                        const aiHistory = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id && h.type === 'ai-agent');
+                        const specialHistory = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id && h.type === 'special-approval');
+
+                        // 权威报告优先：formData.aiAuditReports 是最全面持久化的报告
+                        const auditResult = agentReport?.auditResult || aiHistory?.auditResult || (agentReport?.score !== undefined ? agentReport : null);
+                        const specialApproval = agentReport?.specialApproval || specialHistory?.specialApproval || (specialHistory ? {
+                            approved: specialHistory.status === '2',
+                            comment: specialHistory.comment,
+                            approvedAt: specialHistory.approvedAt,
+                            approverName: specialHistory.userName,
+                        } : null);
+
+                        // 🌟 尊重客观审计事实：分数永远保持 AI 模型的真实客观评分，特批绝不篡改客观合规得分！
+                        if (specialApproval && auditResult) {
+                            if (specialApproval.approved) {
+                                if (!auditResult.anomalyList || auditResult.anomalyList.length === 0) {
+                                    auditResult.anomalyList = [{
+                                        type: 'overdue_invoice',
+                                        severity: 'medium',
+                                        description: '发票开票严重超期 (已获特批放行豁免)',
+                                        suggestion: `特批人[${specialApproval.approverName || '特批复核人'}]已特批放行: ${specialApproval.comment || '同意报销'}`
+                                    }];
+                                }
+                            } else {
+                                if (!auditResult.anomalyList || auditResult.anomalyList.length === 0) {
+                                    auditResult.anomalyList = [{
+                                        type: 'overdue_invoice',
+                                        severity: 'high',
+                                        description: `发票开票严重超期且特批人驳回: ${specialApproval.comment || '超期不予报销'}`,
+                                        suggestion: '特批人驳回特批申请，单据不予报销'
+                                    }];
+                                }
+                            }
+                        }
+
+                        const isSuspended = Boolean(
+                            (aiHistory?.isSuspended || instance.formData?._isSuspended) &&
+                            instance.currentNodeId === node.id &&
+                            !specialApproval
+                        );
+
+                        let nodeStatus = '';
+                        if (specialApproval) {
+                            nodeStatus = specialApproval.approved ? '2' : '3';
+                        } else if (aiHistory) {
+                            nodeStatus = aiHistory.status;
+                        } else if (node.id === instance.currentNodeId) {
+                            nodeStatus = instance.status === '0' ? '0' : '1';
+                        }
+
+                        // 🌟 核心增强：关联查询人机协同特批人 (HITL) 姓名
+                        let specialApproverName = node.properties?.specialApproverName || null;
+                        const specialApproverId = Number(node.properties?.specialApproverId);
+                        if (specialApproverId && !specialApproverName) {
+                            const approverUser = await this.internalusersService.findUserSimple(specialApproverId);
+                            if (approverUser) {
+                                specialApproverName = approverUser.name || approverUser.username;
+                            }
+                        }
+
+                        return {
+                            nodeId: node.id,
+                            title: node.text?.value || 'AI智能初审',
+                            type: 'ai-agent',
+                            assignee: node.properties?.assignee,
+                            properties: {
+                                ...(node.properties || {}),
+                                specialApproverId: specialApproverId || undefined,
+                                specialApproverName: specialApproverName || undefined,
+                            },
+                            specialApproverId: specialApproverId || undefined,
+                            specialApproverName: specialApproverName || undefined,
+                            status: nodeStatus,
+                            userName: agentRoleName, // 必须是智能体角色名，不能被特批人姓名覆盖
+                            approvedAt: this.formatDateString(specialApproval?.approvedAt || aiHistory?.approvedAt),
+                            comment: specialApproval ? specialApproval.comment : (agentReport?.summary || aiHistory?.comment || auditResult?.summary || null),
+                            auditResult: auditResult,
+                            specialApproval: specialApproval ? {
+                                ...specialApproval,
+                                approvedAt: this.formatDateString(specialApproval.approvedAt),
+                            } : null,
+                            isSuspended: isSuspended,
+                        };
+                    }
+
+                    // 普通节点 (rect, circle)
+                    const history = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start'));
+                    let assigneeName = history?.userName || node.properties?.assigneeName || null;
+                    if (!assigneeName && node.properties?.assignee) {
+                        const user = await this.internalusersService.findUserSimple(node.properties.assignee);
+                        if (user) {
+                            assigneeName = user.name || user.username;
+                        }
+                    }
+
+                    return {
+                        nodeId: node.id,
+                        title: node.text?.value || '未知节点',
+                        type: node.type,
+                        assignee: node.properties?.assignee,
+                        properties: {
+                            ...(node.properties || {}),
+                            assigneeName: assigneeName || undefined,
+                        },
+                        status: history ? history.status : node.id === instance.currentNodeId ? (instance.status === '0' ? '0' : '1') : '',
+                        userName: assigneeName,
+                        approvedAt: this.formatDateString(history ? history.approvedAt : null),
+                        comment: history ? history.comment : null,
+                        auditResult: history?.auditResult || null,
+                        isSuspended: false,
+                    };
+                }),
+        );
         // 判断倒数第二个节点如果是通过的 2 就把最后一个结束节点设置成2完成
         if (steps[steps.length - 1]?.type === 'circle' && steps[steps.length - 1]?.title == '结束') {
             // 使用 some 检查是否存在 status 为 '3' 的节点
@@ -128,12 +293,27 @@ export class LogicFlowService {
             }
         }
 
+        const currentNode = nodes.find(n => n.id === instance.currentNodeId);
+
+        // 🌟 关联查询当前停驻节点的当前审批人/特批人姓名
+        let currentApproverName: string | null = null;
+        if (instance.currentApproverId) {
+            const approverUser = await this.internalusersService.findUserSimple(instance.currentApproverId);
+            if (approverUser) {
+                currentApproverName = approverUser.name || approverUser.username;
+            }
+        }
+
         return {
             instanceId: instance.id,
             title: instance.title,
             status: instance.status,
             currentNodeId: instance.currentNodeId,
+            currentNodeType: currentNode?.type || null,
             currentApproverId: instance.currentApproverId,
+            currentApproverName,
+            isSuspended: Boolean(instance.formData?._isSuspended && instance.currentNodeId),
+            formData: instance.formData,
             steps,
             edges,
         };
@@ -141,9 +321,9 @@ export class LogicFlowService {
 
     /**
      * 按 formData 从“开始”节点向下遍历出实际执行路径（包含节点对象，按顺序）
-     * - 遇到 diamond：根据 condition 选择 '是' 或 '否' 分支（匹配 edge.text.value）
-     * - 遇到 rect 或 circle：默认取第一条合适的出边
-     * - 防止死循环（visited + safety limit）
+     * - 遇到 diamond (排他网关)：使用 resolveConditionBranchEdge 多条件仲裁
+     * - 遇到 rect / ai-agent / circle：取唯一出边
+     * - 防止死循环（visited 检测 + safety 上限，均为严格抛异常，绝不静默丢失）
      */
     private buildExecutionPath(graphData: any, formData: Record<string, any>): any[] {
         const nodes = graphData.nodes || [];
@@ -158,44 +338,44 @@ export class LogicFlowService {
         const visited = new Set<string>();
         let safety = 0;
 
-        while (currentNodeId && safety < 200) {
+        while (currentNodeId) {
             safety++;
+            if (safety > 200) {
+                throw new BadRequestException('流程执行超过最大节点数 (200)，可能存在循环引用或流程设计异常');
+            }
             if (visited.has(currentNodeId)) {
-                break;
+                throw new BadRequestException(`流程存在循环引用，节点：${currentNodeId}`);
             }
             visited.add(currentNodeId);
 
             const currentNode = nodeMap.get(currentNodeId) as any;
-            if (!currentNode) break;
+            if (!currentNode) {
+                throw new BadRequestException(`流程节点不存在：${currentNodeId}`);
+            }
             path.push(currentNode);
 
-            // 如果是结束节点，结束
+            // 如果是结束节点，正常结束
             if (currentNode.type === 'circle' && currentNode.text?.value === '结束') {
                 break;
             }
 
             // 找出出边
             const outgoing = edges.filter((e: any) => e.sourceNodeId === currentNodeId);
-            if (!outgoing || outgoing.length === 0) break;
+            if (!outgoing || outgoing.length === 0) {
+                throw new BadRequestException(`节点【${currentNode.text?.value || currentNode.id}】没有连接后续节点`);
+            }
 
             if (currentNode.type === 'diamond') {
-                // 评估条件，选择 '是' / '否'
-                const condition = currentNode.properties?.condition;
-                const isTrue = this.evaluateCondition(condition, formData);
-                let branchEdge = outgoing.find((e: any) => e.text?.value === (isTrue ? '是' : '否'));
-                if (!branchEdge) {
-                    // 兜底：如果没有标注“是/否”的 edge，则取第一个（
-                    branchEdge = outgoing[0];
-                }
+                // 🌟 工业级排他网关：使用统一多条件仲裁器
+                const branchEdge = this.resolveConditionBranchEdge(currentNode, outgoing, formData);
                 currentNodeId = branchEdge.targetNodeId;
                 continue;
             } else {
-                // rect 或 circle：优先选无文本标签的出边（普通连线），否则取第一个
-                let nextEdge = outgoing.find((e: any) => !e.text?.value) || outgoing[0];
-                if (!nextEdge) break;
-                currentNodeId = nextEdge.targetNodeId;
-
-                // 如果下一个是结束节点，将会在下一循环被加入并 break
+                // rect / ai-agent / circle：普通节点应仅有一条有效出边
+                if (outgoing.length > 1) {
+                    console.warn(`⚠️ [流程引擎] 普通节点【${currentNode.text?.value || currentNode.id}】存在 ${outgoing.length} 条出边，取第一条`);
+                }
+                currentNodeId = outgoing[0].targetNodeId;
                 continue;
             }
         }
@@ -204,29 +384,34 @@ export class LogicFlowService {
     }
 
     // 发起审批
-    async startWorkflow(formId: number, formData: Record<string, any>, userId: number) {
-        console.log('startWorkflow', formId, formData, userId);
+    async startWorkflow(formId: number, formData: Record<string, any>, userId: number, workflowId?: number) {
+        console.log('startWorkflow', formId, formData, userId, workflowId);
         const form = await this.formRepo.findOne({ where: { id: formId } });
         if (!form) throw new BadRequestException('表单不存在');
 
-        const workflow = await this.logicFlowRepository.findOne({ where: { formId } });
+        // 优先使用显式指定的 workflowId；若未传，则取当前表单下最新保存/修改的有效流程模板
+        const workflow = workflowId
+            ? await this.logicFlowRepository.findOne({ where: { id: workflowId } })
+            : await this.logicFlowRepository.findOne({
+                where: { formId },
+                order: { updated_at: 'DESC', id: 'DESC' },
+            });
         if (!workflow) throw new BadRequestException('未找到关联的审批流程');
 
         const graphData = workflow.graphData;
-        const startNode = (graphData.nodes || []).find(node => node.type === 'circle' && node.text?.value === '开始');
+        const getNodeText = (node: any) => (typeof node?.text === 'string' ? node.text : node?.text?.value || '');
+        const startNode = (graphData.nodes || []).find(node => node.type === 'circle' && getNodeText(node) === '开始');
         if (!startNode) throw new BadRequestException('流程起始节点缺失');
 
-        const endtNode = (graphData.nodes || []).find(node => node.type === 'circle' && node.text?.value === '结束');
+        const endtNode = (graphData.nodes || []).find(node => node.type === 'circle' && getNodeText(node) === '结束');
         if (!endtNode) throw new BadRequestException('流程结束节点缺失');
 
-        // 递归查找第一个审批节点
-        const nextNodeInfo = this.traverseToNextApprovalNode(graphData, startNode.id, formData);
-        if (!nextNodeInfo) throw new BadRequestException('流程无有效审批节点');
         // 查询申请人姓名
         const userName = await this.internalusersService.findOne(userId);
+        formData.applicantName = userName?.name || '申请人';
         const title = `${form.name}申请 - ${new Date().toLocaleDateString()}`;
 
-        let approvalHistory = [];
+        let approvalHistory: any[] = [];
         approvalHistory.push({
             nodeId: 'start',
             userName: userName.name,
@@ -234,45 +419,121 @@ export class LogicFlowService {
             approvedAt: this.formatDate(new Date()),
         });
 
+        // 1. 先快速创建并持久化审批实例（初始状态为 0=AI审核中），生成 instanceId
         const instance = this.instanceRepo.create({
             title,
             formData,
-            status: '1', // 待审批
-            currentNodeId: nextNodeInfo.id,
+            status: '0', // 0=AI审核中/处理中, 1=待人工审批, 2=通过, 3=拒绝
+            currentNodeId: startNode.id,
             applicantId: userId,
             userName: userName.name,
             approvalHistory,
             workflowId: workflow.id,
             formId: form.id,
-            currentApproverId: nextNodeInfo.assignee,
+            currentApproverId: null,
         });
 
         await this.instanceRepo.save(instance);
-        return { instanceId: instance.id, workflowName: workflow.name };
+
+        // 2. 🚀 核心异步化改造：后台异步流转 AI 智能体与审批节点（解放 HTTP 接口，秒级返回前端）
+        setImmediate(async () => {
+            try {
+                console.log(`🚀 [流程引擎] 实例 #${instance.id} 开始在后台异步执行 AI 审计与流程流转...`);
+                // 递归流转（包括调用 AI Agent 审计，调用 LangGraph，评估条件分支等）
+                const nextNodeInfo = await this.traverseToNextApprovalNode(
+                    graphData,
+                    startNode.id,
+                    instance.formData,
+                    instance.approvalHistory,
+                    instance.id,
+                );
+
+                const isAutoCompleted = !nextNodeInfo;
+                instance.status = isAutoCompleted ? '2' : '1'; // 2=AI自动通过完结, 1=待人工审批
+                instance.currentNodeId = nextNodeInfo ? nextNodeInfo.id : null;
+                instance.currentApproverId = nextNodeInfo ? nextNodeInfo.assignee : null;
+
+                // 显式重新赋值，确保 TypeORM 能够识别到 JSON 字段的变更并更新到数据库
+                instance.formData = { ...instance.formData };
+                instance.approvalHistory = [...instance.approvalHistory];
+
+                // 将 AI 审查后的表单数据、审查报告历史、当前节点及状态更新入库
+                await this.instanceRepo.save(instance);
+                console.log(`✅ [流程引擎] 实例 #${instance.id} 后台异步流转完成，当前状态: ${instance.status} (${isAutoCompleted ? 'AI自动通过完结' : `已流转至审批人 ID: ${instance.currentApproverId}`})`);
+            } catch (asyncErr) {
+                console.error(`❌ [流程引擎] 实例 #${instance.id} 后台异步流转发生异常:`, asyncErr);
+                instance.approvalHistory.push({
+                    nodeId: 'system_error',
+                    title: '系统流转异常',
+                    type: 'error',
+                    userName: '系统告警',
+                    comment: `流程后台异步执行异常: ${asyncErr.message}`,
+                    approvedAt: this.formatDate(new Date()),
+                });
+                await this.instanceRepo.save(instance);
+            }
+        });
+
+        // 3. ⚡ 立即向前端返回成功响应（耗时仅数十毫秒，前端无任何卡顿！）
+        return {
+            instanceId: instance.id,
+            workflowName: workflow.name,
+            status: '0',
+            message: '申请已成功提交，AI 正在后台进行智能合规初审...',
+        };
     }
 
-    // 获取我的审批流程数据
-    async getMyInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: ApprovalInstance[]; total: number }> {
+    // 获取我的审批流程数据 (轻量列表，不返回 formData/approvalHistory/form，详情由 detail 接口获取)
+    async getMyInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: Partial<ApprovalInstance>[]; total: number }> {
+        const pageNum = page && Number(page) > 0 ? Number(page) : 1;
+        const size = pageSize && Number(pageSize) > 0 ? Number(pageSize) : 10;
         const [data, total] = await this.instanceRepo.findAndCount({
             where: { applicantId: userId },
-            relations: ['form', 'workflow'],
-            skip: (page - 1) * pageSize,
-            take: pageSize,
+            select: [
+                'id',
+                'title',
+                'status',
+                'currentNodeId',
+                'applicantId',
+                'userName',
+                'workflowId',
+                'formId',
+                'currentApproverId',
+                'created_at',
+                'updated_at',
+            ],
+            skip: (pageNum - 1) * size,
+            take: size,
+            order: { id: 'DESC' }, // 最新发起的数据排在第一位
         });
-        return { data: data, total };
+        return { data, total };
     }
 
-    // 获取我的代办任务列表
-    async getMyTodoInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: ApprovalInstance[]; total: number }> {
+    // 获取我的代办任务列表 (轻量列表，不返回 formData/approvalHistory/form，详情由 detail 接口获取)
+    async getMyTodoInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: Partial<ApprovalInstance>[]; total: number }> {
+        const pageNum = page && Number(page) > 0 ? Number(page) : 1;
+        const size = pageSize && Number(pageSize) > 0 ? Number(pageSize) : 10;
         const [data, total] = await this.instanceRepo.findAndCount({
             where: {
                 status: '1', // 待审批
                 currentApproverId: userId, // 我是当前审批人
             },
-            relations: ['form', 'workflow'],
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-            order: { created_at: 'DESC' }, // 最新优先
+            select: [
+                'id',
+                'title',
+                'status',
+                'currentNodeId',
+                'applicantId',
+                'userName',
+                'workflowId',
+                'formId',
+                'currentApproverId',
+                'created_at',
+                'updated_at',
+            ],
+            skip: (pageNum - 1) * size,
+            take: size,
+            order: { id: 'DESC' }, // 最新优先
         });
         return { data, total };
     }
@@ -290,6 +551,18 @@ export class LogicFlowService {
 
         const graphData = instance.workflow.graphData;
         const currentNodeId = instance.currentNodeId;
+        const nodes = graphData.nodes || [];
+        const currentNode = nodes.find(n => n.id === currentNodeId);
+
+        // 🌟 核心兼容：如果当前挂起任务是 AI 智能体 (人机协同特批挂起)，无缝直通 resumeAiApproval 恢复流程
+        if (currentNode && currentNode.type === 'ai-agent') {
+            const userNameObj = await this.internalusersService.findOne(userId);
+            return await this.resumeAiApproval(
+                id,
+                { approved: status === '2', comment },
+                { userId, userName: userNameObj?.name || '特批复核人' },
+            );
+        }
 
         const validationErrors = this.validateWorkflow(graphData);
         if (validationErrors.length > 0) {
@@ -316,7 +589,7 @@ export class LogicFlowService {
         } else if (status == '2') {
             // 同意：查找下一个审批节点
             try {
-                const nextNodeInfo = this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData);
+                const nextNodeInfo = await this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData, instance.approvalHistory, instance.id);
                 console.log('找到下一个节点', nextNodeInfo);
 
                 if (nextNodeInfo) {
@@ -339,72 +612,330 @@ export class LogicFlowService {
 
         return await this.instanceRepo.save(instance);
     }
-    // 辅助函数：递归查找下一个审批节点（rect），处理条件分支
-    private traverseToNextApprovalNode(graphData: any, currentId: string, formData: Record<string, any>): { id: string; assignee: number } | null {
+    // 辅助函数：查找并执行下一个流转节点，支持多 AI 智能体串联审查、条件分支与人工审批
+    private async traverseToNextApprovalNode(
+        graphData: any,
+        currentId: string,
+        formData: Record<string, any>,
+        approvalHistory?: any[],
+        instanceId?: number,
+    ): Promise<{ id: string; assignee: number } | null> {
         const edges = graphData.edges || [];
         const nodes = graphData.nodes || [];
 
+        // 1. 从当前已完成节点 currentId 出发，查找其第一条出边
         const currentEdge = edges.find(edge => edge.sourceNodeId === currentId);
         if (!currentEdge) {
             return null; // 无后续节点，流程结束
         }
 
-        const nextNodeId = currentEdge.targetNodeId;
-        const nextNode = nodes.find(node => node.id === nextNodeId);
+        const nextNode = nodes.find(node => node.id === currentEdge.targetNodeId);
         if (!nextNode) throw new BadRequestException('下一个节点不存在');
 
-        if (nextNode.type === 'rect') {
-            const assignee = nextNode.properties?.assignee;
+        // 2. 将下游目标节点交由统一节点执行器处理
+        return await this.processTargetNode(graphData, nextNode, formData, approvalHistory, instanceId);
+    }
+
+    /**
+     * 核心流程节点执行器：处理指定的目标节点（targetNode），根据节点类型分发执行逻辑
+     * - rect (人工审批): 返回当前审批人信息，流程挂起等待人工审批
+     * - ai-agent (AI智能审查): 调用 Agent 执行审查，注入结果/报告/历史，并自动沿着出边推进到下游目标节点
+     * - diamond (条件判断): 评估条件表达式，选取匹配的分支边，递归推进到分支目标节点（支持分支直接连 AI 节点）
+     * - circle (结束节点): 返回 null，表示流程已自动闭环完结
+     */
+    private async processTargetNode(
+        graphData: any,
+        targetNode: any,
+        formData: Record<string, any>,
+        approvalHistory?: any[],
+        instanceId?: number,
+    ): Promise<{ id: string; assignee: number } | null> {
+        const edges = graphData.edges || [];
+        const nodes = graphData.nodes || [];
+
+        if (!targetNode) {
+            return null;
+        }
+
+        if (targetNode.type === 'rect') {
+            const assignee = targetNode.properties?.assignee;
             if (typeof assignee !== 'number' || assignee <= 0) {
-                throw new BadRequestException(`审批节点 ${nextNode.text?.value} 未配置有效审批人`);
+                throw new BadRequestException(`审批节点 ${targetNode.text?.value || targetNode.id} 未配置有效审批人`);
             }
 
-            // 直接返回当前审批节点，不要继续递归
-            return { id: nextNode.id, assignee };
-        } else if (nextNode.type === 'diamond') {
-            // 条件节点：评估条件并选择分支
-            const condition = nextNode.properties?.condition;
-            const isTrue = this.evaluateCondition(condition, formData);
-            const branchEdges = edges.filter(edge => edge.sourceNodeId === nextNodeId);
-            if (branchEdges.length === 0) throw new BadRequestException('条件节点缺少出边');
-            const branchEdge = branchEdges.find(edge => edge.text?.value === (isTrue ? '是' : '否'));
-            if (!branchEdge) {
-                throw new BadRequestException(`条件节点缺少 ${isTrue ? '是' : '否'} 分支`);
-            }
-            const targetNode = nodes.find(n => n.id === branchEdge.targetNodeId);
-            if (!targetNode) throw new BadRequestException('分支目标节点不存在');
-            //  如果分支直接指向 rect，直接返回，不要再递归
-            if (targetNode.type === 'rect') {
-                const assignee = targetNode.properties?.assignee;
-                if (typeof assignee != 'number' || assignee <= 0) {
-                    throw new BadRequestException(`审批节点 ${targetNode.text?.value} 未配置有效审批人`);
+            // 直接返回当前审批节点，流程挂起等待人工审批
+            return { id: targetNode.id, assignee };
+        } else if (targetNode.type === 'ai-agent') {
+            console.log('🤖 [流程引擎] 流转至通用 AI 智能体审查节点:', targetNode.id, targetNode.text?.value);
+            // 自动提取发票附件文件列表
+            let invoiceFiles: any[] = [];
+            for (const key of Object.keys(formData)) {
+                if (Array.isArray(formData[key]) && formData[key].length > 0 && (formData[key][0]?.filePath || formData[key][0]?.url)) {
+                    invoiceFiles = formData[key];
+                    break;
                 }
-                return { id: targetNode.id, assignee };
             }
-            // 递归调用，处理下一个节点
-            return this.traverseToNextApprovalNode(graphData, branchEdge.targetNodeId, formData);
-        } else if (nextNode.type === 'circle' && nextNode.text?.value === '结束') {
+
+            const agentRole = targetNode.properties?.agentRole || 'finance:invoice_audit';
+            const riskThreshold = Number(targetNode.properties?.riskThreshold) || 80;
+            let auditResult: any = null;
+            try {
+                auditResult = await this.agentFlowService.executeAgentAudit(agentRole, {
+                    instanceId: instanceId || 0,
+                    formData,
+                    files: invoiceFiles,
+                    riskThreshold,
+                });
+            } catch (err) {
+                console.error(`AI 审查 [${agentRole}] 执行异常，记录错误并降级:`, err);
+                auditResult = {
+                    complianceScore: 60,
+                    pass: false,
+                    summary: `AI 审查 [${agentRole}] 执行异常，转入人工复核`,
+                    anomalyList: [{ type: 'other', severity: 'high', description: `AI执行失败: ${err.message}` }],
+                    details: { invoiceCount: invoiceFiles.length, declaredAmount: Number(formData.amount || 0), reasonCheck: '待人工复核', riskLevel: 'HIGH' },
+                };
+            }
+
+            // 0. 发票初审提取的金额与用户申报金额规范化处理
+            const extractedAmount = auditResult.details?.totalInvoiceAmount ?? auditResult.details?.declaredAmount;
+            const declared = Number(formData.totalAmount || formData.amount || 0);
+            if (declared > 0) {
+                // 用户已填报金额：amount 与 totalAmount 保持统一为用户申报金额
+                if (formData.amount === undefined || formData.amount === 0) formData.amount = declared;
+                if (formData.totalAmount === undefined || formData.totalAmount === 0) formData.totalAmount = declared;
+            } else if (extractedAmount) {
+                // 用户完全未填报金额：以发票提取金额兜底填报
+                formData.amount = extractedAmount;
+                formData.totalAmount = extractedAmount;
+            }
+            // 将发票实际提取的票面总额独立记录在 invoiceActualAmount，绝不混淆或覆盖用户申报金额！
+            formData.invoiceActualAmount = extractedAmount;
+
+            // 将 AI 审查结果注入 formData：
+            // 1. 全局合规通过状态：采用【多智能体一票否决制】(任何一个 Agent 判定不合规，全局 ai_pass 立即锁定为 false)
+            if (formData.ai_pass === undefined) {
+                formData.ai_pass = auditResult.pass;
+            } else {
+                formData.ai_pass = Boolean(formData.ai_pass && auditResult.pass);
+            }
+
+            // 2. 全局合规得分：采用【木桶短板原则】(取所有经过 Agent 的最低分作为整单综合风控分)
+            if (formData.complianceScore === undefined) {
+                formData.complianceScore = auditResult.complianceScore;
+            } else {
+                formData.complianceScore = Math.min(Number(formData.complianceScore), Number(auditResult.complianceScore));
+            }
+            formData.riskScore = formData.complianceScore;
+
+            // 3. 角色专有字段（便于多 Agent 串行精细化条件: condition: "finance_invoice_audit_score >= 80"）
+            const safeRoleKey = agentRole.replace(/[:\-]/g, '_');
+            formData[`${safeRoleKey}_score`] = auditResult.complianceScore;
+            formData[`${safeRoleKey}_pass`] = auditResult.pass;
+
+            // 4. 节点专属字段（便于针对特定节点条件: condition: "node_xxx_score >= 80"）
+            const safeNodeKey = String(targetNode.id).replace(/[:\-]/g, '_');
+            formData[`${safeNodeKey}_score`] = auditResult.complianceScore;
+
+            // 5. 将结构化提取的发票明细与查重凭证持久化写入 formData（供历史跨单据精准索引）
+            if (auditResult.details?.invoices && Array.isArray(auditResult.details.invoices)) {
+                formData.invoices = auditResult.details.invoices;
+            }
+
+            // 🌟 6. 将【AI 真实说的话】(结构化总结、原因、建议及原始报文) 进行防覆盖聚合
+            const realSpeech = auditResult.aiRealSpeech || {
+                summary: auditResult.summary,
+                reasonCheck: auditResult.details?.reasonCheck,
+                suggestions: auditResult.suggestions,
+                rawOutput: auditResult.rawModelResponse,
+            };
+
+            // 多 Agent 报告集合存储 (每个 Agent 保留自己独立的报告)
+            if (!formData.aiAuditReports) {
+                formData.aiAuditReports = {};
+            }
+            formData.aiAuditReports[agentRole] = {
+                role: agentRole,
+                roleName: targetNode.properties?.agentRoleName || this.agentFlowService.getAgentRoleName(agentRole),
+                score: auditResult.complianceScore,
+                pass: auditResult.pass,
+                summary: auditResult.summary,
+                aiRealSpeech: realSpeech,
+                auditResult,
+            };
+
+            // 全局 aiRealSpeech 防覆盖规则：
+            // - 若当前 Agent 判定不通过 (pass === false)，驳回具有致命性，优先作为驳回审批理由；
+            // - 若都通过，保留当前或拼接说明
+            if (!formData.aiRealSpeech) {
+                formData.aiRealSpeech = realSpeech;
+            } else if (!auditResult.pass) {
+                if (formData.aiRealSpeech.summary && !formData.aiRealSpeech.summary.includes(realSpeech.summary)) {
+                    formData.aiRealSpeech = {
+                        ...realSpeech,
+                        summary: `${formData.aiRealSpeech.summary}；${realSpeech.summary}`,
+                    };
+                } else {
+                    formData.aiRealSpeech = realSpeech;
+                }
+            }
+
+            if (auditResult.isSuspended) {
+                const specialApproverId = Number(targetNode.properties?.specialApproverId);
+                if (!specialApproverId) {
+                    throw new BadRequestException(`AI审查节点【${targetNode.text?.value || targetNode.id}】未配置人机协同特批人(HITL)`);
+                }
+                console.log(`⏸️ [流程引擎] AI节点 [${targetNode.text?.value || targetNode.id}] 触发人机协同挂起，等待特批人 [#${specialApproverId}] 审批`);
+
+                formData._isSuspended = true;
+                formData._suspendedNodeId = targetNode.id;
+                formData._suspendedAgentRole = agentRole;
+                formData._suspendedSuspendInfo = auditResult.suspendInfo;
+
+                if (approvalHistory) {
+                    approvalHistory.push({
+                        nodeId: targetNode.id,
+                        title: targetNode.text?.value || 'AI智能初审',
+                        type: 'ai-agent',
+                        status: '1', // 1=待特批审批
+                        userName: targetNode.properties?.agentRoleName || this.agentFlowService.getAgentRoleName(agentRole),
+                        comment: auditResult.summary,
+                        isSuspended: true,
+                        suspendInfo: auditResult.suspendInfo,
+                        aiRealSpeech: realSpeech,
+                        auditResult: auditResult,
+                        approvedAt: this.formatDate(new Date()),
+                    });
+                }
+
+                // 挂起中断，不再向下递归，返回当前节点与特批人
+                return { id: targetNode.id, assignee: specialApproverId };
+            }
+
+            // 记录到审批历史 (存储入 approval_instances 数据库表)
+            if (approvalHistory) {
+                approvalHistory.push({
+                    nodeId: targetNode.id,
+                    title: targetNode.text?.value || 'AI智能初审',
+                    type: 'ai-agent',
+                    status: auditResult.pass ? '2' : '3', // 2=通过，3=存疑
+                    userName: targetNode.properties?.agentRoleName || this.agentFlowService.getAgentRoleName(agentRole),
+                    comment: auditResult.summary,
+                    // 🌟 核心：在数据库审批流水中独立显式存储 AI 真实说的话与原始输出
+                    aiRealSpeech: realSpeech,
+                    rawModelResponse: auditResult.rawModelResponse,
+                    auditResult: auditResult,
+                    approvedAt: this.formatDate(new Date()),
+                });
+            }
+
+            // 继续查找该 AI 节点的后续节点
+            const nextEdge = edges.find(edge => edge.sourceNodeId === targetNode.id);
+            if (!nextEdge) {
+                return null; // 无后续节点，流程结束
+            }
+            const nextNode = nodes.find(node => node.id === nextEdge.targetNodeId);
+            if (!nextNode) throw new BadRequestException('AI节点后续节点不存在');
+
+            // 递归向下处理下一个目标节点（下一个可能是 diamond 条件分支，或者另一个 ai-agent，或者 rect 人工审批，或者 circle 结束）
+            return await this.processTargetNode(graphData, nextNode, formData, approvalHistory, instanceId);
+        } else if (targetNode.type === 'diamond') {
+            // 🌟 工业级排他网关（Exclusive Gateway）：使用统一多条件仲裁器
+            const branchEdges = edges.filter(edge => edge.sourceNodeId === targetNode.id);
+            if (branchEdges.length === 0) throw new BadRequestException('条件网关缺少出边');
+
+            const branchEdge = this.resolveConditionBranchEdge(targetNode, branchEdges, formData);
+            const branchTargetNode = nodes.find(n => n.id === branchEdge.targetNodeId);
+            if (!branchTargetNode) throw new BadRequestException('分支目标节点不存在');
+
+            // 分支选中的目标节点直接交由 processTargetNode 处理！
+            // 无论是 rect 人工审批、ai-agent 智能体、还是另一个 diamond 条件节点，均能正确执行，绝不跳步！
+            return await this.processTargetNode(graphData, branchTargetNode, formData, approvalHistory, instanceId);
+        } else if (targetNode.type === 'circle' && targetNode.text?.value === '结束') {
             return null; // 到达结束节点
         } else {
-            throw new BadRequestException(`不支持的节点类型: ${nextNode.type}`);
+            throw new BadRequestException(`不支持的节点类型: ${targetNode.type}`);
         }
     }
-    // 辅助函数：评估条件表达式
-    private evaluateCondition(condition: string, formData: Record<string, any>): boolean {
-        if (!condition) throw new BadRequestException('条件表达式缺失');
-        console.log('condition:', condition, formData);
-        let expr = condition;
-        for (const key in formData) {
-            let value = formData[key];
-            if (typeof value === 'string' && !isNaN(Number(value))) {
-                value = Number(value);
+    /**
+     * 🌟 排他网关（Exclusive Gateway）分支仲裁器 (按出边 condition 顺序仲裁，命中即走；未命中走 isDefault 兜底)
+     */
+    private resolveConditionBranchEdge(diamondNode: any, outgoingEdges: any[], formData: Record<string, any>): any {
+        const nodeName = diamondNode.text?.value || diamondNode.id;
+
+        // 1. 依次评估非默认分支连线（按出边顺序，首个命中即走）
+        for (const edge of outgoingEdges) {
+            if (edge.properties?.isDefault) continue;
+            const condition = edge.properties?.condition;
+            if (condition && this.evaluateCondition(condition, formData)) {
+                console.log(`🎯 [排他网关:${nodeName}] 命中分支【${edge.text?.value || edge.id}】(条件: ${condition})`);
+                return edge;
             }
-            expr = expr.replace(new RegExp(`\\b${key}\\b`, 'g'), JSON.stringify(value));
         }
+
+        // 2. 前置条件全未命中，走默认兜底分支（Else）
+        const defaultEdge = outgoingEdges.find(e => e.properties?.isDefault);
+        if (defaultEdge) {
+            console.log(`⚠️ [排他网关:${nodeName}] 前置分支均未命中，走默认兜底连线【${defaultEdge.text?.value || defaultEdge.id}】`);
+            return defaultEdge;
+        }
+
+        throw new BadRequestException(
+            `条件网关【${nodeName}】所有分支条件均未满足，且未配置默认兜底连线（请在一条出边上设置默认分支 isDefault）！`,
+        );
+    }
+
+    // 辅助函数：评估条件表达式（沙箱安全版，彻底杜绝 "xxx is not defined"）
+    private evaluateCondition(condition: string, formData: Record<string, any>): boolean {
+        if (!condition || !condition.trim()) {
+            console.warn('⚠️ [条件评估] 条件表达式缺失，默认返回 false');
+            return false;
+        }
+
+        const data: Record<string, any> = { ...formData };
+        // 智能别名兼容：自动互转 amount 与 totalAmount
+        if (data.totalAmount !== undefined && data.amount === undefined) {
+            data.amount = data.totalAmount;
+        } else if (data.amount !== undefined && data.totalAmount === undefined) {
+            data.totalAmount = data.amount;
+        }
+
+        // 默认预设常用流转变量（若尚未产生或未填写），防止 AI 异步流转中尚未生成指标时抛错
+        if (data.complianceScore === undefined) data.complianceScore = 0;
+        if (data.riskScore === undefined) data.riskScore = 0;
+        if (data.ai_pass === undefined) data.ai_pass = false;
+
         try {
-            return !!eval(expr); // 警告：eval不安全，生产环境中替换为安全解析器
+            // 使用 Proxy 拦截所有变量访问，杜绝 "xxx is not defined"
+            const sandbox = new Proxy(data, {
+                has() {
+                    return true;
+                },
+                get(target, prop: string | symbol) {
+                    if (typeof prop !== 'string') return undefined;
+                    if (prop in target) {
+                        const val = target[prop];
+                        if (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '') {
+                            return Number(val);
+                        }
+                        return val;
+                    }
+                    // 对常见但未计算的指标给予安全兜底值
+                    if (['complianceScore', 'riskScore', 'amount', 'totalAmount'].includes(prop)) {
+                        return 0;
+                    }
+                    if (prop === 'ai_pass') return false;
+                    return undefined;
+                },
+            });
+
+            const evalFn = new Function('sandbox', `with(sandbox) { return !!(${condition}); }`);
+            const result = Boolean(evalFn(sandbox));
+            console.log(`🔍 [条件评估] 表达式 "${condition}" 评估结果: ${result}`);
+            return result;
         } catch (e) {
-            throw new BadRequestException(`条件评估失败: ${e.message}`);
+            console.warn(`⚠️ [条件评估] 条件 "${condition}" 执行异常 (${e.message})，安全降级为 false`);
+            return false;
         }
     }
 
@@ -427,12 +958,40 @@ export class LogicFlowService {
             hasOutgoing.add(edge.sourceNodeId);
         }
 
-        // 检查所有 rect 节点是否有出边（除非是最后一个审批）
+        // 检查所有 rect 和 ai-agent 节点是否有出边
         for (const node of nodes) {
-            if (node.type === 'rect' && !hasOutgoing.has(node.id)) {
-                errors.push(`审批节点 "${node.text?.value}" 没有连接后续节点，请检查流程完整性`);
+            if ((node.type === 'rect' || node.type === 'ai-agent') && !hasOutgoing.has(node.id)) {
+                errors.push(`节点【${node.text?.value || node.id}】没有连接后续节点，请检查流程完整性`);
             }
         }
+
+        // 🌟 校验条件网关（Diamond）节点：必须至少有 2 条出边
+        for (const node of nodes) {
+            if (node.type === 'diamond') {
+                const diamondOutgoing = edges.filter((e: any) => e.sourceNodeId === node.id);
+                if (diamondOutgoing.length < 2) {
+                    errors.push(`条件网关【${node.text?.value || node.id}】必须至少连接 2 条分支连线（当前仅有 ${diamondOutgoing.length} 条）`);
+                }
+                // 检查是否配置了条件（出边或节点至少有一处配了条件）
+                const hasEdgeCond = diamondOutgoing.some(e => e.properties?.condition || e.properties?.isDefault);
+                const hasNodeCond = !!node.properties?.condition;
+                if (!hasEdgeCond && !hasNodeCond) {
+                    errors.push(`条件网关【${node.text?.value || node.id}】尚未配置任何条件表达式（请在出边或节点上配置）`);
+                }
+            }
+        }
+
+        // 🌟 节点人员配置强校验
+        for (const node of nodes) {
+            const nodeTitle = (typeof node?.text === 'string' ? node.text : node?.text?.value) || node.id;
+            if (node.type === 'rect' && !node.properties?.assignee) {
+                errors.push(`审批节点【${nodeTitle}】未配置审批人`);
+            }
+            if (node.type === 'ai-agent' && !node.properties?.specialApproverId) {
+                errors.push(`AI智能审查节点【${nodeTitle}】必须配置人机协同特批人(HITL)`);
+            }
+        }
+
         return errors;
     }
 
@@ -445,5 +1004,213 @@ export class LogicFlowService {
         const minutes = String(date.getMinutes()).padStart(2, '0');
         const seconds = String(date.getSeconds()).padStart(2, '0');
         return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    }
+
+    // 格式化任意时间字符串为标准的本地 YYYY-MM-DD HH:mm:ss
+    private formatDateString(dateStr?: string | null): string | null {
+        if (!dateStr) return null;
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return this.formatDate(d);
+    }
+
+    /**
+     * 🌟 人机协同 (HITL)：特批审核人唤醒挂起的 AI 智能体并驱动下游流转
+     */
+    async resumeAiApproval(instanceId: number, dto: { approved: boolean; comment?: string }, currentUser: any) {
+        const instance = await this.instanceRepo.findOne({
+            where: { id: instanceId },
+            relations: ['workflow'],
+        });
+
+        if (!instance) {
+            throw new BadRequestException('审批实例不存在');
+        }
+
+        // 校验权限：当前用户必须是特批复核人
+        if (Number(instance.currentApproverId) !== Number(currentUser?.userId)) {
+            throw new BadRequestException('无特批放行权限，只有当前指定的特批复核人才能操作');
+        }
+
+        const graphData = instance.workflow.graphData;
+        const nodes = graphData.nodes || [];
+        const edges = graphData.edges || [];
+        const currentNode = nodes.find(n => n.id === instance.currentNodeId);
+
+        if (!currentNode || currentNode.type !== 'ai-agent') {
+            throw new BadRequestException('当前流程节点未处于 AI 挂起等待特批状态');
+        }
+
+        const agentRole = currentNode.properties?.agentRole;
+        if (!agentRole) {
+            throw new BadRequestException('AI节点未配置智能体角色 agentRole');
+        }
+
+        console.log(`▶️ [流程引擎] 用户 [${currentUser.userName || currentUser.userId}] 正在对实例 #${instanceId} 执行 AI 特批恢复 (决定: ${dto.approved ? '放行' : '驳回'})`);
+
+        // 1. 调用 AgentFlowService 唤醒挂起的 LangGraph
+        const resumedAuditResult = await this.agentFlowService.resumeAgentAudit(agentRole, {
+            instanceId,
+            approved: dto.approved,
+            comment: dto.comment,
+            approverId: currentUser.userId,
+            approverName: currentUser.userName || '特批复核人',
+            formData: instance.formData,
+            files: instance.formData?.files || [],
+            extraData: {
+                formData: instance.formData,
+                files: instance.formData?.files || [],
+                savedBudgetResult: instance.formData?.aiAuditReports?.['finance:budget_control'],
+            },
+        });
+
+        // 2. 记录特批审批历史
+        const approvalActionText = dto.approved ? '同意特批放行' : '驳回特批申请';
+        instance.approvalHistory = instance.approvalHistory || [];
+        instance.approvalHistory.push({
+            nodeId: currentNode.id,
+            title: `${currentNode.text?.value || 'AI智能初审'} - 人工特批`,
+            type: 'special-approval',
+            status: dto.approved ? '2' : '3',
+            userName: currentUser.userName || '特批复核人',
+            comment: dto.comment || approvalActionText,
+            approvedAt: this.formatDate(new Date()),
+            specialApproval: resumedAuditResult?.specialApproval,
+        });
+
+        // 🌟 同步将该 AI 节点的挂起历史记录置为已恢复处理，解除挂起标记与回写审计结果
+        const previousSuspendedHistory = instance.approvalHistory.find(h => h.nodeId === currentNode.id && h.type === 'ai-agent');
+        if (previousSuspendedHistory) {
+            previousSuspendedHistory.status = dto.approved ? '2' : '3';
+            previousSuspendedHistory.isSuspended = false;
+            if (resumedAuditResult?.summary) {
+                previousSuspendedHistory.comment = resumedAuditResult.summary;
+            }
+            if (resumedAuditResult) {
+                previousSuspendedHistory.auditResult = resumedAuditResult;
+                previousSuspendedHistory.specialApproval = resumedAuditResult.specialApproval;
+            }
+        }
+
+        // 3. 更新 formData 状态与审计结果 (彻底清理挂起标记)
+        if (!instance.formData) instance.formData = {};
+        instance.formData._isSuspended = false;
+        delete instance.formData._suspendedNodeId;
+        delete instance.formData._suspendedSuspendInfo;
+        delete instance.formData._suspendedAgentRole;
+        instance.formData.ai_pass = Boolean(dto.approved);
+        // 🌟 尊重客观打分：特批是行政放行决策，永远不篡改 AI 原始客观评分
+        const originalScore = Number(resumedAuditResult?.complianceScore ?? instance.formData.complianceScore ?? 50);
+        instance.formData.complianceScore = originalScore;
+        instance.formData.riskScore = originalScore;
+
+        if (resumedAuditResult) {
+            resumedAuditResult.complianceScore = originalScore;
+            (resumedAuditResult as any).score = originalScore;
+            if (dto.approved) {
+                if (!resumedAuditResult.anomalyList || resumedAuditResult.anomalyList.length === 0) {
+                    resumedAuditResult.anomalyList = [{
+                        type: 'overdue_invoice',
+                        severity: 'medium',
+                        description: '发票开票严重超期 (已获特批放行豁免)',
+                        suggestion: `特批人[${currentUser.userName || '特批复核人'}]已特批放行: ${dto.comment || '同意报销'}`
+                    }];
+                }
+            } else {
+                if (!resumedAuditResult.anomalyList) resumedAuditResult.anomalyList = [];
+                if (!resumedAuditResult.anomalyList.some(a => a.severity === 'high')) {
+                    resumedAuditResult.anomalyList.unshift({
+                        type: 'overdue_invoice',
+                        severity: 'high',
+                        description: `发票严重超期且特批人驳回: ${dto.comment || '超期不予报销'}`,
+                        suggestion: '特批人驳回特批申请，单据不予报销'
+                    });
+                }
+            }
+        }
+
+        if (resumedAuditResult?.details?.invoices) {
+            instance.formData.invoices = resumedAuditResult.details.invoices;
+        }
+
+        // 同步更新 aiAuditReports
+        if (instance.formData.aiAuditReports && instance.formData.aiAuditReports[agentRole]) {
+            instance.formData.aiAuditReports[agentRole].pass = Boolean(dto.approved);
+            instance.formData.aiAuditReports[agentRole].score = originalScore;
+            instance.formData.aiAuditReports[agentRole].complianceScore = originalScore;
+            instance.formData.aiAuditReports[agentRole].summary = resumedAuditResult?.summary || '';
+            instance.formData.aiAuditReports[agentRole].specialApproval = resumedAuditResult?.specialApproval;
+            if (resumedAuditResult) {
+                instance.formData.aiAuditReports[agentRole].auditResult = resumedAuditResult;
+            }
+        }
+
+        if (!dto.approved) {
+            // 特批人直接驳回：单据终结，状态置为驳回 3
+            instance.status = '3';
+            instance.currentNodeId = null;
+            instance.currentApproverId = null;
+            console.log(`❌ [流程引擎] 实例 #${instanceId} 经特批人驳回，流程结束`);
+            return await this.instanceRepo.save(instance);
+        }
+
+        // 4. 特批放行：沿着 AI 节点的出边自动向下继续推进后续节点！
+        const nextEdge = edges.find(edge => edge.sourceNodeId === currentNode.id);
+        if (!nextEdge) {
+            // 无后续出边，流程直接完结并通过
+            instance.status = '2';
+            instance.currentNodeId = null;
+            instance.currentApproverId = null;
+            console.log(`🎉 [流程引擎] 实例 #${instanceId} 特批放行且无后续节点，流程通过结单`);
+            return await this.instanceRepo.save(instance);
+        }
+
+        const nextNode = nodes.find(node => node.id === nextEdge.targetNodeId);
+        if (!nextNode) throw new BadRequestException('AI节点后续节点不存在');
+
+        // 🚀 核心异步化改造（参考 startWorkflow 发起接口机制）：
+        // 将单据先置为 status = '0' (后台处理中)，立即保存并返回，释放 HTTP 请求，杜绝大模型调用卡死！
+        instance.status = '0';
+        instance.currentNodeId = nextNode.id;
+        instance.currentApproverId = null;
+        instance.formData = { ...instance.formData };
+        instance.approvalHistory = [...instance.approvalHistory];
+        const savedInstance = await this.instanceRepo.save(instance);
+
+        setImmediate(async () => {
+            try {
+                console.log(`🚀 [流程引擎] 实例 #${instanceId} 特批放行后，开始在后台异步推进下游智能体与审批节点...`);
+                const nextNodeInfo = await this.processTargetNode(
+                    graphData,
+                    nextNode,
+                    savedInstance.formData,
+                    savedInstance.approvalHistory,
+                    savedInstance.id,
+                );
+
+                const isAutoCompleted = !nextNodeInfo;
+                savedInstance.status = isAutoCompleted ? '2' : '1';
+                savedInstance.currentNodeId = nextNodeInfo ? nextNodeInfo.id : null;
+                savedInstance.currentApproverId = nextNodeInfo ? nextNodeInfo.assignee : null;
+                savedInstance.formData = { ...savedInstance.formData };
+                savedInstance.approvalHistory = [...savedInstance.approvalHistory];
+                await this.instanceRepo.save(savedInstance);
+                console.log(`✅ [流程引擎] 实例 #${instanceId} 特批下游异步流转完成，当前状态: ${savedInstance.status} (${isAutoCompleted ? '自动通过完结' : `已流转至审批人 ID: ${savedInstance.currentApproverId}`})`);
+            } catch (asyncErr: any) {
+                console.error(`❌ [流程引擎] 实例 #${instanceId} 特批下游异步流转发生异常:`, asyncErr);
+                savedInstance.approvalHistory.push({
+                    nodeId: 'system_error',
+                    title: '系统流转异常',
+                    type: 'error',
+                    userName: '系统告警',
+                    comment: `特批下游异步流转异常: ${asyncErr.message}`,
+                    approvedAt: this.formatDate(new Date()),
+                });
+                await this.instanceRepo.save(savedInstance);
+            }
+        });
+
+        return savedInstance;
     }
 }

@@ -35,10 +35,10 @@ export class LogicFlowController {
 
     // 保存发起的审批流程
     @Post('startWorkflow')
-    startWorkflow(@Body() body: { formId: number; formData: Record<string, any>; userId?: number }) {
-        const { formId, formData, userId } = body;
+    startWorkflow(@Body() body: { formId: number; formData: Record<string, any>; userId?: number; workflowId?: number }) {
+        const { formId, formData, userId, workflowId } = body;
         if (!formId || !formData) throw new BadRequestException('表单 ID 和数据不能为空');
-        return this.logicFlowService.startWorkflow(formId, formData, userId);
+        return this.logicFlowService.startWorkflow(formId, formData, userId, workflowId);
     }
 
     // 获取自己的审批列表(查看自己发起的流程记录)
@@ -75,5 +75,25 @@ export class LogicFlowController {
     getApprovalHistory(@Query('id') id: string) {
         console.log('getApprovalHistory', id);
         return this.logicFlowService.getApprovalHistory(+id);
+    }
+
+    // 按表单 ID 查询其绑定的所有流程模板(放开一对一后,供发起审批时选择走哪条流程)
+    @Get('findByFormId')
+    findByFormId(@Query('formId') formId: number) {
+        return this.logicFlowService.findByFormId(+formId);
+    }
+
+    /**
+     * 🌟 人机协同 (HITL)：特批审核人唤醒挂起的 AI 智能体并推动下游流转
+     */
+    @Post('resume-ai')
+    resumeAi(@Body() body: { instanceId: number; userId: number; userName?: string; approved: boolean; comment?: string }) {
+        const { instanceId, userId, userName, approved, comment } = body;
+        if (!instanceId) throw new BadRequestException('审批实例 ID 不能为空');
+        return this.logicFlowService.resumeAiApproval(
+            instanceId,
+            { approved: Boolean(approved), comment },
+            { userId: Number(userId), userName },
+        );
     }
 }

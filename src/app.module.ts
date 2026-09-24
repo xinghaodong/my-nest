@@ -24,6 +24,7 @@ import { VideoModule } from './video/video.module';
 import { LogicFlowModule } from './logic-flow/logic-flow.module';
 import { FormDesignModule } from './form-design/form-design.module';
 import { FundEstimateModule } from './fund-estimate/fund-estimate.module';
+import { AgentFlowModule } from './agent-flow/agent-flow.module';
 
 @Module({
     imports: [
@@ -72,6 +73,7 @@ import { FundEstimateModule } from './fund-estimate/fund-estimate.module';
         LogicFlowModule,
         FormDesignModule,
         FundEstimateModule,
+        AgentFlowModule,
     ],
     controllers: [AppController],
     providers: [AppService],

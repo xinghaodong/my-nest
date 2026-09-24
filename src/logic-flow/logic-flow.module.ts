@@ -6,9 +6,10 @@ import { LogicFlow } from './entities/logic-flow.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { FormDesign } from '../form-design/entities/form-design.entity';
 import { InternalusersModule } from '../internalusers/internalusers.module';
+import { AgentFlowModule } from '../agent-flow/agent-flow.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([LogicFlow, ApprovalInstance, FormDesign]), InternalusersModule],
+    imports: [TypeOrmModule.forFeature([LogicFlow, ApprovalInstance, FormDesign]), InternalusersModule, AgentFlowModule],
     controllers: [LogicFlowController],
     providers: [LogicFlowService],
     exports: [LogicFlowService],

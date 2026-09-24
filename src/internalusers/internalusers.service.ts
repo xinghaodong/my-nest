@@ -246,4 +246,20 @@ export class InternalusersService {
         if (!data) throw new HttpException('未找到', 404);
         return data;
     }
+
+    /**
+     * 轻量查询用户基础信息 (用于审批流显示审批人/特批人姓名)
+     */
+    async findUserSimple(id: number): Promise<{ id: number; name: string; username: string } | null> {
+        if (!id) return null;
+        try {
+            const user = await this.usersRepository.findOne({
+                where: { id },
+                select: ['id', 'name', 'username'],
+            });
+            return user || null;
+        } catch {
+            return null;
+        }
+    }
 }
