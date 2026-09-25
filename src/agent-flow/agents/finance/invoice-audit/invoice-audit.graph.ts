@@ -423,8 +423,9 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             toolEvidence.summaryNotes.push(`【连号预警】${c.message}`);
         }
 
-        // 4. 🌟 发票时效与严重超期排查 (超过 90 天自动命中跨期挂起)
-        const overdueCheck = checkInvoiceOverdueTool(extInvoices, 400);
+        // 4. 🌟 发票时效与严重超期排查 (优先从环境变量 INVOICE_OVERDUE_DAYS_LIMIT 读取，默认 90 天)
+        const overdueLimit = this.getOverdueDaysLimit();
+        const overdueCheck = checkInvoiceOverdueTool(extInvoices, overdueLimit);
         toolEvidence.overdueChecks = overdueCheck.overdueList;
         toolEvidence.hasOverdue = overdueCheck.hasOverdue;
         toolEvidence.maxOverdueDays = overdueCheck.maxOverdueDays;
@@ -512,10 +513,11 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
 
         const hasOverdue = toolResults?.hasOverdue;
         const maxOverdueDays = toolResults?.maxOverdueDays || 0;
+        const overdueLimit = this.getOverdueDaysLimit();
         if (hasOverdue) {
-            hardFacts.push(`🚨【开票严重超期异常事实】单据发票已跨期超期 ${maxOverdueDays} 天 (企业规定报销时效 ≤ 90 天)，属于严重超期违规！"pass" 必须填 false！合规评分 (complianceScore) 严禁评高分 (最高不得超过 60 分)！`);
+            hardFacts.push(`🚨【开票严重超期异常事实】单据发票已跨期超期 ${maxOverdueDays} 天 (企业规定报销时效 ≤ ${overdueLimit} 天)，属于严重超期违规！"pass" 必须填 false！合规评分 (complianceScore) 严禁评高分 (最高不得超过 60 分)！`);
         } else {
-            hardFacts.push(`✅【开票时效合规】发票开票日期在正常报销时效内。`);
+            hardFacts.push(`✅【开票时效合规】发票开票日期在正常报销时效 (${overdueLimit} 天) 内。`);
         }
 
         const hasBuyerMismatch = toolResults?.hasBuyerMismatch;
@@ -717,9 +719,9 @@ ${toolEvidenceText}
         if (!hasOverdue) {
             return { isSuspended: false, status: 'running' };
         }
-        console.log(toolResults,'toolResults?.maxOverdueDays')
-        const maxOverdueDays = toolResults?.maxOverdueDays || 90;
-        const overdueMessage = toolResults?.overdueChecks?.[0]?.message || `【发票严重超期】发票已跨期超期 ${maxOverdueDays} 天 (系统规定 ≤ 90 天)`;
+        const overdueLimit = this.getOverdueDaysLimit();
+        const maxOverdueDays = toolResults?.maxOverdueDays || overdueLimit;
+        const overdueMessage = toolResults?.overdueChecks?.[0]?.message || `【发票严重超期】发票已跨期超期 ${maxOverdueDays} 天 (系统规定 ≤ ${overdueLimit} 天)`;
         console.log(`⏸️ [人机协同门禁] 发票合规但存在超期(${maxOverdueDays}天)，触发 LangGraph 原生 interrupt() 挂起等待特批: ${overdueMessage}`);
 
         // 原生调用 interrupt()，抛出挂起数据并冻结至 Checkpointer
@@ -897,7 +899,8 @@ ${toolEvidenceText}
         // 5. 开票时效核验 (严重超期扣分)
         if (toolResults?.hasOverdue) {
             score -= 40; // 严重超期至少扣除 40 分，最高封顶 60 分
-            const overdueDesc = toolResults.overdueChecks?.[0]?.message || `单据发票已跨期超期 ${toolResults.maxOverdueDays} 天 (企业规定报销时效 ≤ 90 天)`;
+            const overdueLimit = this.getOverdueDaysLimit();
+            const overdueDesc = toolResults.overdueChecks?.[0]?.message || `单据发票已跨期超期 ${toolResults.maxOverdueDays} 天 (企业规定报销时效 ≤ ${overdueLimit} 天)`;
             anomalies.push({
                 type: 'overdue_invoice',
                 severity: 'medium',
@@ -955,6 +958,14 @@ ${toolEvidenceText}
             suggestions: anomalies.map(a => a.suggestion || a.description),
             rawModelResponse: '【未调用大模型 / 本次由本地 TypeScript 规则引擎安全兜底执行】',
         };
+    }
+
+    /**
+     * 获取发票报销时效上限天数 (优先读取环境变量 INVOICE_OVERDUE_DAYS_LIMIT，默认 90 天)
+     */
+    private getOverdueDaysLimit(): number {
+        const val = Number(process.env.INVOICE_OVERDUE_DAYS_LIMIT);
+        return !isNaN(val) && val > 0 ? val : 90;
     }
 
     /**
