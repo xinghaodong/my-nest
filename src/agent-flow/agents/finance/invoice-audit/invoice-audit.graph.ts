@@ -93,9 +93,12 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
             }
         }
 
+        const declaredAmount = Number(input.context?.declaredAmount ?? 0);
+
         const initialState: Partial<InvoiceAuditState> = {
             instanceId: input.instanceId,
             formData: input.formData || {},
+            declaredAmount,
             files: invoiceFiles,
             invoiceFiles: invoiceFiles,
             agentRole: this.role,
@@ -239,7 +242,7 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
                     specialApproval,
                     recoveredFromReboot: true,
                     invoices: formData.invoices || [],
-                    totalInvoiceAmount: formData.amount || formData.totalAmount || 0,
+                    totalInvoiceAmount: Number(input.extraData?.context?.declaredAmount ?? 0),
                 },
             };
             return fallbackResult;
@@ -421,7 +424,7 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
         }
 
         // 4. 🌟 发票时效与严重超期排查 (超过 90 天自动命中跨期挂起)
-        const overdueCheck = checkInvoiceOverdueTool(extInvoices, 90);
+        const overdueCheck = checkInvoiceOverdueTool(extInvoices, 400);
         toolEvidence.overdueChecks = overdueCheck.overdueList;
         toolEvidence.hasOverdue = overdueCheck.hasOverdue;
         toolEvidence.maxOverdueDays = overdueCheck.maxOverdueDays;
@@ -447,9 +450,6 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
         toolEvidence.summaryNotes.push(...buyerCheck.summaryNotes);
         toolEvidence.fraudAlerts?.push(...buyerCheck.fraudAlerts);
         toolEvidence.passedNotes?.push(...buyerCheck.passedNotes);
-        if (buyerCheck.hasBuyerMismatch) {
-            toolEvidence.hasCriticalFraud = true;
-        }
 
         return {
             toolResults: toolEvidence,
@@ -469,17 +469,20 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
     private async complianceAuditNode(state: InvoiceAuditState): Promise<Partial<InvoiceAuditState>> {
         console.log('🤖 [Node 3: compliance_audit] 调用财务领域审计模型进行综合裁决...');
 
-        const declaredAmount = Number(state.formData?.amount || state.formData?.totalAmount || 0);
+        const declaredAmount = state.declaredAmount || 0;
         const expenseType = state.formData?.expenseType || state.formData?.type || '通用报销';
         const expenseReason = this.extractExpenseReason(state.formData);
         const applicant = this.extractApplicantName(state.formData);
         const invoiceCount = (state.invoiceFiles || []).length;
+        const ocrExtractedCount = (state.invoiceDetails || []).length;
+        const isOfflineOcr = invoiceCount > 0 && ocrExtractedCount === 0;
+
         const invoiceAmount = state.totalInvoiceAmount || 0;
         const toolResults = state.toolResults;
 
         // 🌟 事实预计算（防止小参数模型算错减法或忽视查重铁证）
         const amountDiff = Math.abs(declaredAmount - invoiceAmount);
-        const isAmountMatched = amountDiff <= 1;
+        const isAmountMatched = isOfflineOcr || amountDiff <= 1;
         const duplicateList = toolResults?.duplicationChecks || [];
         const isDuplicate = duplicateList.length > 0;
         const invalidTaxList = (toolResults?.taxCodeChecks || []).filter(t => !t.valid);
@@ -488,7 +491,9 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
 
         // 生成铁证事实指令
         const hardFacts: string[] = [];
-        if (!isAmountMatched) {
+        if (isOfflineOcr) {
+            hardFacts.push(`⚠️【金额提取未知】由于本地 OCR 服务未部署或离线，未能提取到图片附件的金额。票面总额提取为 ￥0 属于系统架构原因，严禁因此判定\"金额不符\"要求退回！"amountMatch" 请填 true，合规分不应因此项扣分！`);
+        } else if (!isAmountMatched) {
             hardFacts.push(`❌【金额严重不符事实】申报金额 ￥${declaredAmount} 与发票票面金额 ￥${invoiceAmount} 不一致，相差 ￥${amountDiff.toFixed(2)}！"amountMatch" 必须填 false！`);
         } else {
             hardFacts.push(`✅【金额一致】申报金额与发票票面金额一致。`);
@@ -675,38 +680,54 @@ ${toolEvidenceText}
 
     /**
      * Node 4: 🌟 人机协同门禁 (Human-In-The-Loop)
-     * 若检测到开票日期严重超期 (>90天) 且尚未特批，调用 LangGraph 原生 interrupt() 挂起流程等待人工特批
+     * 业务规则：
+     * 1. 致命红线（发票抬头不符、重复报销、金额严重不符、假税号）：一票否决硬性驳回，绝不调用 interrupt()，不可特批；
+     * 2. 仅当发票真实合规、账实相符，【仅存在发票开票超期 (>90天)】且尚未特批时，才调用 LangGraph 原生 interrupt() 挂起流程等待人工特批！
      */
     private async hitlOverdueGateNode(state: InvoiceAuditState): Promise<Partial<InvoiceAuditState>> {
-        const hasOverdue = state.toolResults?.hasOverdue;
-        const hasCriticalFraud = state.toolResults?.hasCriticalFraud;
         const specialApproval = state.specialApproval;
 
-        // 如果发票未超期，或者已经获得了特批决定，或者命中严重欺诈/抬头不符（直接进入终审否决不予特批），直接顺畅进入终评
-        if (!hasOverdue || specialApproval || hasCriticalFraud) {
+        // 如果已经获得了特批决定，直接顺畅进入终评
+        if (specialApproval) {
             return { isSuspended: false, status: 'running' };
         }
 
-        const declaredAmount = Number(state.formData?.totalAmount || state.formData?.amount || 0);
+        const toolResults = state.toolResults;
+        const hasBuyerMismatch = Boolean(toolResults?.hasBuyerMismatch);
+        const hasCriticalFraud = Boolean(toolResults?.hasCriticalFraud);
+        const isDuplicate = Boolean(toolResults?.duplicationChecks?.some((d: any) => d.isDuplicate));
+        const invoiceCount = (state.invoiceFiles || []).length;
+        const ocrExtractedCount = (state.invoiceDetails || []).length;
+        const isOfflineOcr = invoiceCount > 0 && ocrExtractedCount === 0;
+        const declaredAmount = state.declaredAmount || 0;
         const invoiceAmount = state.totalInvoiceAmount || 0;
         const amountDiff = Math.abs(declaredAmount - invoiceAmount);
-        const isAmountMatched = amountDiff <= 1;
+        const hasInvoiceFiles = invoiceCount > 0;
+        const isAmountMismatch = !isOfflineOcr && hasInvoiceFiles && amountDiff > 1;
 
-        let suspendReason = '';
-        if (!isAmountMatched && (state.invoiceFiles || []).length > 0) {
-            suspendReason += `【金额严重不符】申报 ￥${declaredAmount.toFixed(2)} 与发票总额 ￥${invoiceAmount.toFixed(2)} 相差 ￥${amountDiff.toFixed(2)}；`;
+        // 🚨 致命合规红线：金额不符、发票抬头不符、假税号、重复报销 -> 绝对不可特批，直接穿透至终评硬性驳回
+        const hasFatalViolations = hasBuyerMismatch || isAmountMismatch || hasCriticalFraud || isDuplicate;
+        if (hasFatalViolations) {
+            console.log('🚫 [人机协同门禁] 检测到单据存在致命合规红线 (发票抬头不符/重复报销/金额不符)，绝对不可特批，直接走硬性驳回');
+            return { isSuspended: false, status: 'running' };
         }
-        suspendReason += state.toolResults?.overdueChecks?.[0]?.message || `【发票严重超期】发票已跨期超期 ${state.toolResults?.maxOverdueDays} 天 (系统规定 ≤ 90 天)`;
 
-        console.log(`⏸️ [人机协同门禁] 检测到单据合规异常，触发 LangGraph 原生 interrupt() 挂起: ${suspendReason}`);
+        // 🌟 仅发票超期且单据本身真实无其他硬性违规时，触发人机协同特批挂起
+        const hasOverdue = Boolean(toolResults?.hasOverdue);
+        if (!hasOverdue) {
+            return { isSuspended: false, status: 'running' };
+        }
+        console.log(toolResults,'toolResults?.maxOverdueDays')
+        const maxOverdueDays = toolResults?.maxOverdueDays || 90;
+        const overdueMessage = toolResults?.overdueChecks?.[0]?.message || `【发票严重超期】发票已跨期超期 ${maxOverdueDays} 天 (系统规定 ≤ 90 天)`;
+        console.log(`⏸️ [人机协同门禁] 发票合规但存在超期(${maxOverdueDays}天)，触发 LangGraph 原生 interrupt() 挂起等待特批: ${overdueMessage}`);
 
         // 原生调用 interrupt()，抛出挂起数据并冻结至 Checkpointer
         const humanDecision = interrupt({
-            type: 'OVERDUE_INVOICE',
-            message: suspendReason,
-            overdueDays: state.toolResults?.maxOverdueDays,
-            invoiceDate: state.toolResults?.overdueChecks?.[0]?.invoiceDate,
-            amountDiff: !isAmountMatched ? amountDiff : 0,
+            type: 'OVERDUE_INVOICE_SPECIAL_APPROVAL',
+            message: overdueMessage,
+            overdueDays: maxOverdueDays,
+            invoiceDate: toolResults?.overdueChecks?.[0]?.invoiceDate,
             declaredAmount,
             invoiceAmount,
             instanceId: state.instanceId,
@@ -729,56 +750,53 @@ ${toolEvidenceText}
         console.log('⚖️ [Node 5: evaluate_result] 结果终评、特批结论吸收与阈值判定...');
         const threshold = state.riskThreshold || 80;
         const result = state.auditResult;
-        const hasCriticalFraud = state.toolResults?.hasCriticalFraud;
+        const toolResults = state.toolResults;
         const specialApproval = state.specialApproval;
+
+        const hasBuyerMismatch = Boolean(toolResults?.hasBuyerMismatch);
+        const hasCriticalFraud = Boolean(toolResults?.hasCriticalFraud);
+        const isDuplicate = Boolean(toolResults?.duplicationChecks?.some((d: any) => d.isDuplicate));
+        const invoiceCount = (state.invoiceFiles || []).length;
+        const ocrExtractedCount = (state.invoiceDetails || []).length;
+        const isOfflineOcr = invoiceCount > 0 && ocrExtractedCount === 0;
+        const declaredAmount = state.declaredAmount || 0;
+        const invoiceAmount = state.totalInvoiceAmount || 0;
+        const hasInvoiceFiles = invoiceCount > 0;
+        const isAmountMismatch = !isOfflineOcr && hasInvoiceFiles && Math.abs(declaredAmount - invoiceAmount) > 1;
+
+        const hasFatalViolations = hasBuyerMismatch || isAmountMismatch || hasCriticalFraud || isDuplicate;
 
         if (result) {
             const anomalies = Array.isArray(result.anomalyList) ? result.anomalyList : [];
 
-            // 1. 致命欺诈底线：假税号、重复报销一票否决，任何特批无效
-            if (hasCriticalFraud) {
+            // 1. 致命红线违规：一票否决，无论任何情况均判定不合格
+            if (hasFatalViolations) {
                 result.pass = false;
+                result.complianceScore = Math.min(Number(result.complianceScore) || 20, 40);
             } else if (specialApproval) {
-                // 2. 存在人工特批
+                // 2. 仅针对发票超期的人工特批决策
                 if (specialApproval.approved) {
-                    // 特批放行仅豁免超期异常，若单据存在金额严重不符等高风险，如实保留拦截
-                    const nonOverdueAnomalies = (result.anomalyList || []).filter(a => a.type !== 'overdue_invoice');
-                    const hasUnresolvedHighRisk = nonOverdueAnomalies.some(a => a.severity === 'high');
-
-                    result.pass = !hasUnresolvedHighRisk;
-                    // 🌟 尊重客观审计事实：保留大模型自身客观打分，不因特批放行而人为改分
-                    const approveTag = `【特批放行】发票存在超期异常(${state.toolResults?.maxOverdueDays}天)，经审批人[${specialApproval.approverName || '特批复核人'}]特批放行: ${specialApproval.comment || '同意报销'}`;
+                    result.pass = true;
+                    const approveTag = `【发票超期特批放行】审批人[${specialApproval.approverName || '特批复核人'}]已特批放行发票跨期报销: ${specialApproval.comment || '同意报销'}`;
                     result.summary = `${approveTag}；${result.summary}`;
                     result.specialApproval = specialApproval;
                     if (!result.details) result.details = {};
                     result.details.specialApproval = specialApproval;
-                    // 保留超期特批豁免记录，同时如实保留金额严重不符等非超期异常项
-                    result.anomalyList = [
-                        {
-                            type: 'overdue_invoice',
-                            severity: 'medium',
-                            description: `发票开票严重超期 ${state.toolResults?.maxOverdueDays} 天 (已获特批放行豁免)`,
-                            suggestion: `特批人[${specialApproval.approverName || '特批复核人'}]已特批放行: ${specialApproval.comment || '同意报销'}`
-                        },
-                        ...nonOverdueAnomalies
-                    ];
                 } else {
-                    // 特批驳回：维持初审不合格判定与大模型原生客观打分
                     result.pass = false;
-                    const rejectTag = `【特批驳回】审批人[${specialApproval.approverName || '特批复核人'}]驳回了发票超期报销: ${specialApproval.comment || '超期不予报销'}`;
+                    const rejectTag = `【发票超期特批驳回】审批人[${specialApproval.approverName || '特批复核人'}]驳回了发票超期报销: ${specialApproval.comment || '超期不予报销'}`;
                     result.summary = `${rejectTag}；${result.summary}`;
                     result.specialApproval = specialApproval;
                     if (!result.details) result.details = {};
                     result.details.specialApproval = specialApproval;
-                    result.anomalyList.unshift({
-                        type: 'overdue_invoice',
-                        severity: 'high',
-                        description: `发票严重超期且特批人驳回: ${specialApproval.comment}`,
-                    });
                 }
             } else {
-                // 3. 正常无超期情况
-                if (result.complianceScore >= threshold && !anomalies.some(a => a.severity === 'high')) {
+                // 3. 正常判定 (无致命违规，无特批)
+                const hasOverdue = Boolean(toolResults?.hasOverdue);
+                if (hasOverdue) {
+                    // 超期未特批：直接不通过
+                    result.pass = false;
+                } else if (result.complianceScore >= threshold && !anomalies.some(a => a.severity === 'high')) {
                     result.pass = true;
                 } else {
                     result.pass = false;
@@ -796,9 +814,12 @@ ${toolEvidenceText}
      * 规则引擎兜底审核
      */
     private ruleBasedFallbackAudit(state: InvoiceAuditState): BaseAuditResult {
-        const declaredAmount = Number(state.formData?.amount || state.formData?.totalAmount || 0);
+        const declaredAmount = state.declaredAmount || 0;
         const invoiceAmount = state.totalInvoiceAmount || 0;
         const invoiceCount = (state.invoiceFiles || []).length;
+        const ocrExtractedCount = (state.invoiceDetails || []).length;
+        const isOfflineOcr = invoiceCount > 0 && ocrExtractedCount === 0;
+
         const toolResults = state.toolResults;
 
         const anomalies: AuditAnomaly[] = [];
@@ -840,14 +861,23 @@ ${toolEvidenceText}
         }
 
         // 3. 金额匹配核验
-        if (invoiceCount > 0 && Math.abs(declaredAmount - invoiceAmount) > 1) {
-            const diff = Math.abs(declaredAmount - invoiceAmount);
+        const amountDiff = Math.abs(declaredAmount - invoiceAmount);
+        const isAmountMatched = isOfflineOcr || amountDiff <= 1;
+
+        if (invoiceCount > 0 && !isAmountMatched) {
             score -= 25;
             anomalies.push({
                 type: 'amount_mismatch',
                 severity: 'medium',
-                description: `申报金额 (￥${declaredAmount}) 与发票票面总金额 (￥${invoiceAmount}) 不一致，相差 ￥${diff.toFixed(2)}`,
+                description: `申报金额 (￥${declaredAmount}) 与发票票面总金额 (￥${invoiceAmount}) 不一致，相差 ￥${amountDiff.toFixed(2)}`,
                 suggestion: '请核实是否漏传发票或金额填写有误',
+            });
+        } else if (isOfflineOcr) {
+            anomalies.push({
+                type: 'other',
+                severity: 'low',
+                description: '图片附件金额未能全量提取 (本地 OCR 服务离线或缺失)，请以附件原件查验为准',
+                suggestion: '暂不拦截，由审批人自行查看图片附件内容核验金额',
             });
         }
 
@@ -914,7 +944,8 @@ ${toolEvidenceText}
                 invoiceCount,
                 declaredAmount,
                 totalInvoiceAmount: invoiceAmount,
-                amountMatch: Math.abs(declaredAmount - invoiceAmount) <= 1,
+                amountMatch: isAmountMatched,
+                isOfflineOcr,
                 taxCodeValid: !toolResults?.taxCodeChecks?.some(t => !t.valid),
                 isDuplicate: !!toolResults?.duplicationChecks?.some(d => d.isDuplicate),
                 reasonCheck: '确定性工具校验与规则引擎初审',

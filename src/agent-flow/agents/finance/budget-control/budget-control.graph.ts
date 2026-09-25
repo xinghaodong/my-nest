@@ -36,7 +36,7 @@ export class BudgetControlAgentGraph implements IAgentGraph {
         console.log(`🚀 [${this.roleName}] 启动执行 (流程实例: #${input.instanceId})...`);
 
         const department = input.formData?.department || input.formData?.deptName || '研发中心';
-        const declaredAmount = Number(input.formData?.amount || input.formData?.totalAmount || 0);
+        const declaredAmount = Number(input.context?.declaredAmount ?? 0);
 
         // 模拟各业务部门的季度预算与已使用额度字典
         const deptBudgets: Record<string, { quarter: number; used: number }> = {

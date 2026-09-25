@@ -18,6 +18,7 @@ export const JointReviewAnnotation = Annotation.Root({
     formData: Annotation<Record<string, any>>(),
     files: Annotation<Array<{ name?: string; fileName?: string; filePath?: string; url?: string; size?: number }>>(),
     riskThreshold: Annotation<number>(),
+    context: Annotation<Record<string, any>>(),
 
     // 并行分支专属字段 (字段拆分, 避免写冲突, 无需 reducer)
     invoiceResult: Annotation<BaseAuditResult | null>(),  // 仅 invoice_node 写

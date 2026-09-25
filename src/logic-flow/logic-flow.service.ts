@@ -10,6 +10,16 @@ import { FormDesign } from '../form-design/entities/form-design.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { InternalusersService } from '../internalusers/internalusers.service';
 import { AgentFlowService } from '../agent-flow/agent-flow.service';
+/**
+ * 流程流转执行结果（严格类型定义，杜绝模糊 null 歧义与文本猜测）
+ */
+export interface FlowStepResult {
+    isCompleted: boolean; // 是否到达结束事件终态
+    status: '1' | '2' | '3'; // 1=待人工审批, 2=审批通过, 3=审批驳回
+    currentNodeId: string | null; // 未完结时的停驻节点ID
+    currentApproverId: number | null; // 未完结时的当前审批人ID
+    finishReason?: string; // 终态结单原因或流转附言
+}
 
 @Injectable()
 export class LogicFlowService {
@@ -232,7 +242,7 @@ export class LogicFlowService {
                     }
 
                     // 普通节点 (rect, circle)
-                    const history = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start'));
+                    const history = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start') || (node.text?.value === '结束' && h.nodeId === 'end'));
                     let assigneeName = history?.userName || node.properties?.assigneeName || null;
                     if (!assigneeName && node.properties?.assignee) {
                         const user = await this.internalusersService.findUserSimple(node.properties.assignee);
@@ -259,15 +269,12 @@ export class LogicFlowService {
                     };
                 }),
         );
-        // 判断倒数第二个节点如果是通过的 2 就把最后一个结束节点设置成2完成
+        // 结束节点状态校准：直接与流程实例终态 instance.status 保持一致
         if (steps[steps.length - 1]?.type === 'circle' && steps[steps.length - 1]?.title == '结束') {
-            // 使用 some 检查是否存在 status 为 '3' 的节点
-            const hasRejectedNode = steps.some(step => step.status == '3');
-            if (hasRejectedNode) {
-                // 如果存在 status 为 '3' 的节点，将最后一个节点设置为 '3'
-                steps[steps.length - 1].status = '3';
-            } else if (steps[steps.length - 2]?.status == '2') {
+            if (instance.status === '2') {
                 steps[steps.length - 1].status = '2';
+            } else if (instance.status === '3') {
+                steps[steps.length - 1].status = '3';
             }
         }
 
@@ -418,7 +425,7 @@ export class LogicFlowService {
             try {
                 console.log(`🚀 [流程引擎] 实例 #${instance.id} 开始在后台异步执行 AI 审计与流程流转...`);
                 // 递归流转（包括调用 AI Agent 审计，调用 LangGraph，评估条件分支等）
-                const nextNodeInfo = await this.traverseToNextApprovalNode(
+                const stepResult = await this.traverseToNextApprovalNode(
                     graphData,
                     startNode.id,
                     instance.formData,
@@ -426,10 +433,21 @@ export class LogicFlowService {
                     instance.id,
                 );
 
-                const isAutoCompleted = !nextNodeInfo;
-                instance.status = isAutoCompleted ? '2' : '1'; // 2=AI自动通过完结, 1=待人工审批
-                instance.currentNodeId = nextNodeInfo ? nextNodeInfo.id : null;
-                instance.currentApproverId = nextNodeInfo ? nextNodeInfo.assignee : null;
+                instance.status = stepResult.status;
+                instance.currentNodeId = stepResult.currentNodeId;
+                instance.currentApproverId = stepResult.currentApproverId;
+
+                if (stepResult.isCompleted) {
+                    const endNode = (graphData.nodes || []).find((n: any) => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                    instance.approvalHistory.push({
+                        nodeId: endNode?.id || 'end',
+                        title: '流程结束',
+                        userName: '流程引擎',
+                        status: stepResult.status,
+                        comment: stepResult.finishReason || (stepResult.status === '2' ? '所有节点审批通过，流程完结' : '流程流转结束，予以驳回'),
+                        approvedAt: this.formatDate(new Date()),
+                    });
+                }
 
                 // 显式重新赋值，确保 TypeORM 能够识别到 JSON 字段的变更并更新到数据库
                 instance.formData = { ...instance.formData };
@@ -437,7 +455,7 @@ export class LogicFlowService {
 
                 // 将 AI 审查后的表单数据、审查报告历史、当前节点及状态更新入库
                 await this.instanceRepo.save(instance);
-                console.log(`✅ [流程引擎] 实例 #${instance.id} 后台异步流转完成，当前状态: ${instance.status} (${isAutoCompleted ? 'AI自动通过完结' : `已流转至审批人 ID: ${instance.currentApproverId}`})`);
+                console.log(`✅ [流程引擎] 实例 #${instance.id} 后台异步流转完成，当前状态: ${instance.status} (${stepResult.isCompleted ? (instance.status === '2' ? '自动通过完结' : '自动驳回完结') : `已流转至审批人 ID: ${instance.currentApproverId}`})`);
             } catch (asyncErr) {
                 console.error(`❌ [流程引擎] 实例 #${instance.id} 后台异步流转发生异常:`, asyncErr);
                 instance.approvalHistory.push({
@@ -567,18 +585,24 @@ export class LogicFlowService {
         } else if (status == '2') {
             // 同意：查找下一个审批节点
             try {
-                const nextNodeInfo = await this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData, instance.approvalHistory, instance.id);
-                console.log('找到下一个节点', nextNodeInfo);
+                const stepResult = await this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData, instance.approvalHistory, instance.id);
+                console.log('找到下一个流转步骤:', stepResult);
 
-                if (nextNodeInfo) {
-                    instance.status = '1';
-                    instance.currentNodeId = nextNodeInfo.id;
-                    instance.currentApproverId = nextNodeInfo.assignee;
-                } else {
-                    console.log('流程结束，通过');
-                    instance.status = '2';
-                    instance.currentNodeId = null;
-                    instance.currentApproverId = null;
+                instance.status = stepResult.status;
+                instance.currentNodeId = stepResult.currentNodeId;
+                instance.currentApproverId = stepResult.currentApproverId;
+
+                if (stepResult.isCompleted) {
+                    const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                    instance.approvalHistory.push({
+                        nodeId: endNode?.id || 'end',
+                        title: '流程结束',
+                        userName: '流程引擎',
+                        status: stepResult.status,
+                        comment: stepResult.finishReason || (stepResult.status === '2' ? '流程审批结束，全部通过' : '后续流程流转结束，予以驳回'),
+                        approvedAt: this.formatDate(new Date()),
+                    });
+                    console.log(`流程结束，状态: ${stepResult.status === '2' ? '通过' : '驳回'}`);
                 }
             } catch (error: any) {
                 console.error('审批流转过程中发生错误：', error.message);
@@ -597,14 +621,14 @@ export class LogicFlowService {
         formData: Record<string, any>,
         approvalHistory?: any[],
         instanceId?: number,
-    ): Promise<{ id: string; assignee: number } | null> {
+    ): Promise<FlowStepResult> {
         const edges = graphData.edges || [];
         const nodes = graphData.nodes || [];
 
         // 1. 从当前已完成节点 currentId 出发，查找其第一条出边
         const currentEdge = edges.find(edge => edge.sourceNodeId === currentId);
         if (!currentEdge) {
-            return null; // 无后续节点，流程结束
+            return this.resolveEndEvent(null, formData); // 无后续节点，流程结束
         }
 
         const nextNode = nodes.find(node => node.id === currentEdge.targetNodeId);
@@ -616,10 +640,10 @@ export class LogicFlowService {
 
     /**
      * 核心流程节点执行器：处理指定的目标节点（targetNode），根据节点类型分发执行逻辑
-     * - rect (人工审批): 返回当前审批人信息，流程挂起等待人工审批
+     * - rect (人工审批): 返回当前审批人信息，流程挂起等待人工审批 (isCompleted: false, status: '1')
      * - ai-agent (AI智能审查): 调用 Agent 执行审查，注入结果/报告/历史，并自动沿着出边推进到下游目标节点
-     * - diamond (条件判断): 评估条件表达式，选取匹配的分支边，递归推进到分支目标节点（支持分支直接连 AI 节点）
-     * - circle (结束节点): 返回 null，表示流程已自动闭环完结
+     * - diamond (条件判断): 评估条件表达式，选取匹配的分支边，递归推进到分支目标节点
+     * - circle (结束节点): 委托终态裁决器 resolveEndEvent 依据 BPMN 结束事件属性与审计事实输出终态
      */
     private async processTargetNode(
         graphData: any,
@@ -627,12 +651,12 @@ export class LogicFlowService {
         formData: Record<string, any>,
         approvalHistory?: any[],
         instanceId?: number,
-    ): Promise<{ id: string; assignee: number } | null> {
+    ): Promise<FlowStepResult> {
         const edges = graphData.edges || [];
         const nodes = graphData.nodes || [];
 
         if (!targetNode) {
-            return null;
+            return this.resolveEndEvent(null, formData);
         }
 
         if (targetNode.type === 'rect') {
@@ -642,7 +666,12 @@ export class LogicFlowService {
             }
 
             // 直接返回当前审批节点，流程挂起等待人工审批
-            return { id: targetNode.id, assignee };
+            return {
+                isCompleted: false,
+                status: '1',
+                currentNodeId: targetNode.id,
+                currentApproverId: assignee,
+            };
         } else if (targetNode.type === 'ai-agent') {
             console.log('🤖 [流程引擎] 流转至通用 AI 智能体审查节点:', targetNode.id, targetNode.text?.value);
             // 自动提取表单附件文件列表（支持任意审批业务的附件上传）
@@ -660,6 +689,12 @@ export class LogicFlowService {
             // 尝试解析申请人所属法人公司信息（若表单未携带）
             await this.resolveApplicantCompanyInfo(formData);
 
+            // 读取节点显式绑定的申报金额字段 (如 bxje)
+            const amountField = targetNode.properties?.amountField;
+            console.log('🤖 [流程引擎] 读取节点关联字段:', amountField, '值:', formData[amountField]);
+
+            const declaredAmount = Number(formData[amountField] || 0);
+
             let auditResult: any = null;
             try {
                 auditResult = await this.agentFlowService.executeAgentAudit(agentRole, {
@@ -667,6 +702,9 @@ export class LogicFlowService {
                     formData,
                     files: attachmentFiles,
                     riskThreshold,
+                    context: {
+                        declaredAmount,
+                    },
                 });
             } catch (err) {
                 console.error(`AI 审查 [${agentRole}] 执行异常，记录错误并降级:`, err);
@@ -770,7 +808,13 @@ export class LogicFlowService {
                 }
 
                 // 挂起中断，不再向下递归，返回当前节点与特批人
-                return { id: targetNode.id, assignee: specialApproverId };
+                return {
+                    isCompleted: false,
+                    status: '1',
+                    currentNodeId: targetNode.id,
+                    currentApproverId: specialApproverId,
+                    finishReason: auditResult.summary,
+                };
             }
 
             // 记录到审批历史 (存储入 approval_instances 数据库表)
@@ -790,10 +834,24 @@ export class LogicFlowService {
                 });
             }
 
+            // 🚨 核心风控：若 AI 判定不通过 (pass === false)，且未被挂起等待特批
+            // 说明单据存在不可调和的重大违规（如买方抬头不符、重复报销、金额严重不符等），直接一票否决驳回结单！
+            // 绝不允许继续流转到下游去判断小额免审！
+            if (!auditResult.pass) {
+                console.log(`🚫 [流程引11擎] AI节点 [${targetNode.text?.value || targetNode.id}] 审查未通过且不可特批，流程直接驳回完结`);
+                return {
+                    isCompleted: true,
+                    status: '3',
+                    currentNodeId: null,
+                    currentApproverId: null,
+                    finishReason: auditResult.summary || 'AI智能初审不合规，单据已驳回',
+                };
+            }
+
             // 继续查找该 AI 节点的后续节点
             const nextEdge = edges.find(edge => edge.sourceNodeId === targetNode.id);
             if (!nextEdge) {
-                return null; // 无后续节点，流程结束
+                return this.resolveEndEvent(targetNode, formData);
             }
             const nextNode = nodes.find(node => node.id === nextEdge.targetNodeId);
             if (!nextNode) throw new BadRequestException('AI节点后续节点不存在');
@@ -812,8 +870,8 @@ export class LogicFlowService {
             // 分支选中的目标节点直接交由 processTargetNode 处理！
             // 无论是 rect 人工审批、ai-agent 智能体、还是另一个 diamond 条件节点，均能正确执行，绝不跳步！
             return await this.processTargetNode(graphData, branchTargetNode, formData, approvalHistory, instanceId);
-        } else if (targetNode.type === 'circle' && targetNode.text?.value === '结束') {
-            return null; // 到达结束节点
+        } else if (targetNode.type === 'circle' && (targetNode.text?.value === '结束' || targetNode.properties?.endStatus || targetNode.properties?.endType)) {
+            return this.resolveEndEvent(targetNode, formData);
         } else {
             throw new BadRequestException(`不支持的节点类型: ${targetNode.type}`);
         }
@@ -830,6 +888,7 @@ export class LogicFlowService {
             const condition = edge.properties?.condition;
             if (condition && this.evaluateCondition(condition, formData)) {
                 console.log(`🎯 [排他网关:${nodeName}] 命中分支【${edge.text?.value || edge.id}】(条件: ${condition})`);
+                this.checkBranchAction(edge, formData);
                 return edge;
             }
         }
@@ -838,12 +897,81 @@ export class LogicFlowService {
         const defaultEdge = outgoingEdges.find(e => e.properties?.isDefault);
         if (defaultEdge) {
             console.log(`⚠️ [排他网关:${nodeName}] 前置分支均未命中，走默认兜底连线【${defaultEdge.text?.value || defaultEdge.id}】`);
+            this.checkBranchAction(defaultEdge, formData);
             return defaultEdge;
         }
 
         throw new BadRequestException(
             `条件网关【${nodeName}】所有分支条件均未满足，且未配置默认兜底连线（请在一条出边上设置默认分支 isDefault）！`,
         );
+    }
+
+    /**
+     * 连线分支动作执行器：严格基于结构化元数据（action / branchType）判定，无任何文本正则猜测
+     */
+    private checkBranchAction(edge: any, formData: Record<string, any>) {
+        if (edge.properties?.action === 'reject' || edge.properties?.branchType === 'reject') {
+            formData._isRejected = true;
+            formData._rejectedReason = edge.properties?.remark || '分支连线配置为驳回流转';
+        }
+    }
+
+    /**
+     * 🌟 标准终态仲裁器：依据 BPMN 结束事件定义、连线动作属性与审计事实，输出严谨的终态决策
+     */
+    private resolveEndEvent(endNode: any, formData: Record<string, any>): FlowStepResult {
+        // 1. 显式配置的结束节点终态 (BPMN End Event Type)
+        const endStatus = endNode?.properties?.endStatus || (endNode?.properties?.endType === 'reject' ? '3' : endNode?.properties?.endType === 'pass' ? '2' : null);
+        if (endStatus === '3') {
+            return {
+                isCompleted: true,
+                status: '3',
+                currentNodeId: null,
+                currentApproverId: null,
+                finishReason: endNode.properties?.remark || '流转至驳回结束事件，流程驳回完结',
+            };
+        }
+        if (endStatus === '2') {
+            return {
+                isCompleted: true,
+                status: '2',
+                currentNodeId: null,
+                currentApproverId: null,
+                finishReason: endNode.properties?.remark || '流转至通过结束事件，流程通过完结',
+            };
+        }
+
+        // 2. 检查前置分支连线显式配置的动作 (Branch Action: reject)
+        if (formData._isRejected) {
+            return {
+                isCompleted: true,
+                status: '3',
+                currentNodeId: null,
+                currentApproverId: null,
+                finishReason: formData._rejectedReason || '网关分支触发驳回动作，流程驳回完结',
+            };
+        }
+
+        // 3. 业务事实一致性门禁 (Fact-based Audit Gate):
+        // 业务智能体给出了不合规审查结论 (pass === false)，且后续未经任何特批放行，自然到达普通结束事件判定为驳回
+        if (formData.ai_pass === false) {
+            return {
+                isCompleted: true,
+                status: '3',
+                currentNodeId: null,
+                currentApproverId: null,
+                finishReason: formData.aiRealSpeech?.summary || '前置智能体合规审查未达标，流程驳回完结',
+            };
+        }
+
+        // 4. 正常流转通过
+        return {
+            isCompleted: true,
+            status: '2',
+            currentNodeId: null,
+            currentApproverId: null,
+            finishReason: '所有节点审批通过，流程正常完结',
+        };
     }
 
     /**
@@ -1108,6 +1236,15 @@ export class LogicFlowService {
             instance.status = '2';
             instance.currentNodeId = null;
             instance.currentApproverId = null;
+            const endNode = nodes.find(n => n.type === 'circle' && n.text?.value === '结束');
+            instance.approvalHistory.push({
+                nodeId: endNode?.id || 'end',
+                title: '流程结束',
+                userName: '流程引擎',
+                status: '2',
+                comment: '特批放行且无后续节点，流程通过结单',
+                approvedAt: this.formatDate(new Date()),
+            });
             console.log(`🎉 [流程引擎] 实例 #${instanceId} 特批放行且无后续节点，流程通过结单`);
             return await this.instanceRepo.save(instance);
         }
@@ -1127,7 +1264,7 @@ export class LogicFlowService {
         setImmediate(async () => {
             try {
                 console.log(`🚀 [流程引擎] 实例 #${instanceId} 特批放行后，开始在后台异步推进下游智能体与审批节点...`);
-                const nextNodeInfo = await this.processTargetNode(
+                const stepResult = await this.processTargetNode(
                     graphData,
                     nextNode,
                     savedInstance.formData,
@@ -1135,14 +1272,25 @@ export class LogicFlowService {
                     savedInstance.id,
                 );
 
-                const isAutoCompleted = !nextNodeInfo;
-                savedInstance.status = isAutoCompleted ? '2' : '1';
-                savedInstance.currentNodeId = nextNodeInfo ? nextNodeInfo.id : null;
-                savedInstance.currentApproverId = nextNodeInfo ? nextNodeInfo.assignee : null;
+                savedInstance.status = stepResult.status;
+                savedInstance.currentNodeId = stepResult.currentNodeId;
+                savedInstance.currentApproverId = stepResult.currentApproverId;
+
+                if (stepResult.isCompleted) {
+                    const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                    savedInstance.approvalHistory.push({
+                        nodeId: endNode?.id || 'end',
+                        title: '流程结束',
+                        userName: '流程引擎',
+                        status: stepResult.status,
+                        comment: stepResult.finishReason || (stepResult.status === '2' ? '特批放行且后续所有节点审批通过，流程完结' : '特批后续流程流转结束，予以驳回'),
+                        approvedAt: this.formatDate(new Date()),
+                    });
+                }
                 savedInstance.formData = { ...savedInstance.formData };
                 savedInstance.approvalHistory = [...savedInstance.approvalHistory];
                 await this.instanceRepo.save(savedInstance);
-                console.log(`✅ [流程引擎] 实例 #${instanceId} 特批下游异步流转完成，当前状态: ${savedInstance.status} (${isAutoCompleted ? '自动通过完结' : `已流转至审批人 ID: ${savedInstance.currentApproverId}`})`);
+                console.log(`✅ [流程引擎] 实例 #${instanceId} 特批下游异步流转完成，当前状态: ${savedInstance.status} (${stepResult.isCompleted ? (savedInstance.status === '2' ? '自动通过完结' : '自动驳回完结') : `已流转至审批人 ID: ${savedInstance.currentApproverId}`})`);
             } catch (asyncErr: any) {
                 console.error(`❌ [流程引擎] 实例 #${instanceId} 特批下游异步流转发生异常:`, asyncErr);
                 savedInstance.approvalHistory.push({

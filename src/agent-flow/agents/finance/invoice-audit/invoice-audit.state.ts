@@ -13,6 +13,7 @@ export const InvoiceAuditAnnotation = Annotation.Root({
     // 流程实例与表单基础信息
     instanceId: Annotation<number>(),
     formData: Annotation<Record<string, any>>(),
+    declaredAmount: Annotation<number>(),
     files: Annotation<Array<{ name?: string; fileName?: string; filePath?: string; url?: string; size?: number }>>(),
     invoiceFiles: Annotation<Array<{ name?: string; fileName?: string; filePath?: string; url?: string; size?: number }>>(),
 

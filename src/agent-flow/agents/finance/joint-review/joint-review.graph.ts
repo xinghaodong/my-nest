@@ -74,6 +74,7 @@ export class JointReviewAgentGraph implements IAgentGraph {
             formData: input.formData || {},
             files: input.files || [],
             riskThreshold: input.riskThreshold ?? 80,
+            context: input.context || {},
             invoiceResult: null,
             budgetResult: null,
             auditResult: null,
@@ -99,7 +100,6 @@ export class JointReviewAgentGraph implements IAgentGraph {
      */
     private async prepareNode(state: JointReviewState): Promise<Partial<JointReviewState>> {
         console.log(`🤝 [Node 1: prepare] 启动并行 fan-out: 发票验真 + 预算管控 (实例 #${state.instanceId})`);
-        console.log(`🤝 [Node 1: prepare] 申报金额: ￥${state.formData?.amount ?? state.formData?.totalAmount ?? '未填'}, 部门: ${state.formData?.department ?? state.formData?.deptName ?? '未填'}, 附件数: ${state.files?.length || 0}`);
         return { status: 'running' };
     }
 
@@ -114,6 +114,7 @@ export class JointReviewAgentGraph implements IAgentGraph {
             formData: state.formData,
             files: state.files,
             riskThreshold: state.riskThreshold,
+            context: state.context,
         };
         const result = await this.invoiceAgent.run(input);
         console.log(`🤝 [并行分支 A: invoice_node] 完成 -> pass=${result.pass}, score=${result.complianceScore}`);
@@ -131,6 +132,7 @@ export class JointReviewAgentGraph implements IAgentGraph {
             formData: state.formData,
             files: state.files,
             riskThreshold: state.riskThreshold,
+            context: state.context,
         };
         const result = await this.budgetAgent.run(input);
         console.log(`🤝 [并行分支 B: budget_node] 完成 -> pass=${result.pass}, score=${result.complianceScore}`);
@@ -241,11 +243,12 @@ export class JointReviewAgentGraph implements IAgentGraph {
 
         // 2. 获取或复算预算专员结果
         let budgetResult = input.extraData?.savedBudgetResult || formData.aiAuditReports?.['finance:budget_control'];
-        if (!budgetResult && (formData.amount || formData.totalAmount)) {
+        if (!budgetResult) {
             budgetResult = await this.budgetAgent.run({
                 instanceId: input.instanceId,
                 formData,
                 files,
+                context: input.extraData?.context || input.context,
             });
         }
 
