@@ -33,8 +33,12 @@ import { AgentFlowModule } from './agent-flow/agent-flow.module';
             envFilePath: `.env.${process.env.NODE_ENV || 'development'}`, // 自动加载对应环境的 .env 文件
         }),
         ServeStaticModule.forRoot({
-            rootPath: join(__dirname, '..', 'uploads'), // 静态文件目录
+            rootPath: join(process.cwd(), 'uploads'), // 始终指向项目根目录下的真实 uploads 附件目录
             serveRoot: '/api/uploads', // 对外暴露的路径前缀
+            exclude: ['/api/uploads/(.*)'], // 纯文件存储服务，禁用 SPA 模式下的 index.html 回退
+            serveStaticOptions: {
+                index: false, // 附件目录禁用默认寻找 index.html，杜绝 ENOENT 异常
+            },
         }),
         // MulterModule.register({
         //     storage: diskStorage({

@@ -3,7 +3,7 @@ import { CreateInternaluserDto } from './dto/create-internaluser.dto';
 import { UpdateInternaluserDto } from './dto/update-internaluser.dto';
 import { InternalUser } from './entities/internaluser.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { FileList } from '../filelist/entities/filelist.entity';
 import { Role } from 'src/role/entities/role.entity';
 import * as bcrypt from 'bcryptjs';
@@ -27,35 +27,36 @@ export class InternalusersService {
         // 注入组织服务
         private readonly orgManagementService: OrgManagementService, // 注入 OrgManagementService
     ) {}
-    // 检测邮箱，账号是否存在
-    async checkEmail(user, upateid: number): Promise<void> {
+    // 检测邮箱，账号是否存在 (支持新增与更新时的严格排他唯一性校验)
+    async checkEmail(user: { email?: string; username?: string }, updateId: number = 0): Promise<void> {
         const { email, username } = user;
-        // 分别查找邮箱和用户名是否已存在
-        const existingEmailUser = email
-            ? await this.usersRepository.findOne({
-                  where: { email },
-              })
-            : null;
+        const targetId = updateId ? Number(updateId) : 0;
 
-        const existingUsernameUser = await this.usersRepository.findOne({
-            where: { username },
-        });
+        // 1. 检查邮箱唯一性 (排除当前更新的用户自身)
+        if (email && typeof email === 'string' && email.trim()) {
+            const cleanEmail = email.trim();
+            const existingEmailUser = await this.usersRepository.findOne({
+                where: targetId > 0
+                    ? { email: cleanEmail, id: Not(targetId) }
+                    : { email: cleanEmail },
+            });
 
-        // 检查邮箱或用户名是否已存在
-        if (upateid === 0 && existingEmailUser) {
-            throw new HttpException('邮箱已存在', HttpStatus.BAD_REQUEST);
-        }
-
-        if (upateid === 0 && existingUsernameUser) {
-            throw new HttpException('账号已存在', HttpStatus.BAD_REQUEST);
-        }
-
-        if (upateid > 0) {
-            if (existingEmailUser && existingEmailUser.id !== upateid) {
-                throw new HttpException('邮箱已存在', HttpStatus.BAD_REQUEST);
+            if (existingEmailUser) {
+                throw new HttpException('该邮箱已被其他用户使用', HttpStatus.BAD_REQUEST);
             }
-            if (existingUsernameUser && existingUsernameUser.id !== upateid) {
-                throw new HttpException('账号已存在', HttpStatus.BAD_REQUEST);
+        }
+
+        // 2. 检查用户名唯一性 (排除当前更新的用户自身)
+        if (username && typeof username === 'string' && username.trim()) {
+            const cleanUsername = username.trim();
+            const existingUsernameUser = await this.usersRepository.findOne({
+                where: targetId > 0
+                    ? { username: cleanUsername, id: Not(targetId) }
+                    : { username: cleanUsername },
+            });
+
+            if (existingUsernameUser) {
+                throw new HttpException('该账号已被其他用户使用', HttpStatus.BAD_REQUEST);
             }
         }
     }
