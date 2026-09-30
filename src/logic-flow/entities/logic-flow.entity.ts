@@ -26,6 +26,10 @@ export class LogicFlow {
     @Column({ type: 'bigint', nullable: true })
     formId?: number;
 
+    // 🌟 连线风格 (bezier: 贝塞尔平滑曲线, polyline: 直角折线, line: 直线)
+    @Column({ length: 50, nullable: true, default: 'bezier' })
+    edgeType?: string;
+
     @CreateDateColumn({ type: 'timestamp' })
     created_at: Date;
 

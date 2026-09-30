@@ -43,9 +43,18 @@ export class ApprovalInstance {
     @Column({ type: 'bigint' })
     formId: number; // 关联 form_design.id
 
-    // 当前审批人 ID
+    // 当前审批人 ID (单人模式兼容)
     @Column({ type: 'bigint', nullable: true })
     currentApproverId: number;
+
+    // 🌟 多人审批模式：'or' (或签/抢办: 一人通过即过), 'and' (会签: 全体通过才过)
+    @Column({ length: 20, nullable: true, default: 'or' })
+    approvalMode?: string;
+
+    // 🌟 当前节点待审批人状态列表 (用于会签与或签追踪)
+    // 结构: [{ userId: number, userName: string, status: 'pending'|'approved'|'rejected', comment?: string, operateTime?: string }]
+    @Column({ type: 'json', nullable: true })
+    currentApprovers?: Record<string, any>[];
 
     @CreateDateColumn({ type: 'timestamp' })
     created_at: Date;

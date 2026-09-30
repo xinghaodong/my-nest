@@ -18,6 +18,10 @@ export class CreateLogicFlowDto {
     @IsOptional()
     formId?: number;
 
+    @IsString()
+    @IsOptional()
+    edgeType?: string;
+
     @IsNotEmpty()
     graphData: Record<string, any>;
 }

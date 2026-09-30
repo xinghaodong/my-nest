@@ -1,11 +1,9 @@
-// LogicFlow type 说明 rect 就是必须有审批人， 条件 diamond
-
 import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
 import { CreateLogicFlowDto } from './dto/create-logic-flow.dto';
 import { UpdateLogicFlowDto } from './dto/update-logic-flow.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LogicFlow } from './entities/logic-flow.entity';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { FormDesign } from '../form-design/entities/form-design.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { InternalusersService } from '../internalusers/internalusers.service';
@@ -17,7 +15,9 @@ export interface FlowStepResult {
     isCompleted: boolean; // 是否到达结束事件终态
     status: '1' | '2' | '3'; // 1=待人工审批, 2=审批通过, 3=审批驳回
     currentNodeId: string | null; // 未完结时的停驻节点ID
-    currentApproverId: number | null; // 未完结时的当前审批人ID
+    currentApproverId: number | null; // 未完结时的当前审批人ID (单人兼容)
+    currentApprovers?: Record<string, any>[]; // 🌟 多人待办人状态列表 (用于会签与或签)
+    approvalMode?: string; // 🌟 审批模式: 'or' (抢办/或签), 'and' (会签)
     finishReason?: string; // 终态结单原因或流转附言
 }
 
@@ -61,12 +61,15 @@ export class LogicFlowService {
             throw new BadRequestException('流程图错误，请检查结束节点（必须包含一个文字为“结束”的圆形节点）');
         }
 
-        // 节点人员配置校验：rect 必须有审批人，ai-agent 必须有人机协同特批人 (HITL)
+        // 节点人员配置校验：rect 必须有审批人 (支持单人 assignee 或多人 assignees)，ai-agent 必须有人机协同特批人 (HITL)
         for (let index = 0; index < nodes.length; index++) {
             const element = nodes[index];
             const nodeTitle = getNodeText(element) || element.id;
-            if (element.type === 'rect' && !element.properties?.assignee) {
-                throw new BadRequestException(`流程图错误，审批节点 [${nodeTitle}] 未配置审批人`);
+            if (element.type === 'rect') {
+                const hasAssignee = element.properties?.assignee || (Array.isArray(element.properties?.assignees) && element.properties.assignees.length > 0);
+                if (!hasAssignee) {
+                    throw new BadRequestException(`流程图错误，审批节点 [${nodeTitle}] 未配置审批人`);
+                }
             }
             if (element.type === 'ai-agent' && !element.properties?.specialApproverId) {
                 throw new BadRequestException(`流程图错误，AI智能审查节点 [${nodeTitle}] 必须配置人机协同特批人(HITL)`);
@@ -242,12 +245,71 @@ export class LogicFlowService {
                     }
 
                     // 普通节点 (rect, circle)
-                    const history = [...(instance.approvalHistory || [])].reverse().find(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start') || (node.text?.value === '结束' && h.nodeId === 'end'));
+                    const nodeHistories = (instance.approvalHistory || [])
+                        .filter(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start') || (node.text?.value === '结束' && h.nodeId === 'end'))
+                        .map(h => ({
+                            userId: Number(h.approverId || h.userId || 0),
+                            userName: h.userName,
+                            status: h.status,
+                            comment: h.comment,
+                            auditResult: h.auditResult,
+                            approvedAt: this.formatDateString(h.approvedAt),
+                        }));
+
+                    const history = [...nodeHistories].reverse()[0];
+                    const isCurrent = node.id === instance.currentNodeId;
+
+                    let records: any[] = [];
+                    if (node.type === 'rect') {
+                        if (isCurrent && Array.isArray(instance.currentApprovers) && instance.currentApprovers.length > 0) {
+                            // 1. 当前节点正在审批中：以 currentApprovers 为框架，补充历史审批结果
+                            records = instance.currentApprovers.map(item => {
+                                const matched = nodeHistories.find(h => h.userId === Number(item.userId));
+                                const status = matched ? matched.status : item.status;
+                                return {
+                                    userId: Number(item.userId),
+                                    userName: item.userName,
+                                    status: status === 'approved' ? '2' : status === 'rejected' ? '3' : status,
+                                    comment: matched?.comment || item.comment || null,
+                                    approvedAt: matched?.approvedAt || this.formatDateString(item.operateTime) || null,
+                                };
+                            });
+                        } else if (nodeHistories.length > 0) {
+                            // 2. 节点已审批结束（例如会签全员审批完成）
+                            records = nodeHistories;
+                        } else if (Array.isArray(node.properties?.assignees) && node.properties.assignees.length > 0) {
+                            // 3. 尚未流转到的后续审批节点
+                            records = await Promise.all(
+                                node.properties.assignees.map(async (uid: any) => {
+                                    const u = await this.internalusersService.findUserSimple(Number(uid));
+                                    return {
+                                        userId: Number(uid),
+                                        userName: u?.name || u?.username || `用户${uid}`,
+                                        status: '0',
+                                        comment: null,
+                                        approvedAt: null,
+                                    };
+                                })
+                            );
+                        }
+                    }
+
                     let assigneeName = history?.userName || node.properties?.assigneeName || null;
-                    if (!assigneeName && node.properties?.assignee) {
-                        const user = await this.internalusersService.findUserSimple(node.properties.assignee);
-                        if (user) {
-                            assigneeName = user.name || user.username;
+                    if (!assigneeName) {
+                        const assignees = node.properties?.assignees;
+                        if (Array.isArray(assignees) && assignees.length > 0) {
+                            const users = await Promise.all(
+                                assignees.map(uid => this.internalusersService.findUserSimple(uid)),
+                            );
+                            const validNames = users.filter(Boolean).map(u => u.name || u.username);
+                            if (validNames.length > 0) {
+                                assigneeName = validNames.join(', ');
+                            }
+                        } else if (node.properties?.assignee) {
+                            const user = await this.internalusersService.findUserSimple(node.properties.assignee);
+                            if (user) {
+                                assigneeName = user.name || user.username;
+                            }
                         }
                     }
 
@@ -256,12 +318,16 @@ export class LogicFlowService {
                         title: node.text?.value || '未知节点',
                         type: node.type,
                         assignee: node.properties?.assignee,
+                        assignees: node.properties?.assignees || (node.properties?.assignee ? [node.properties.assignee] : []),
+                        approvalMode: node.properties?.approvalMode || (isCurrent ? instance.approvalMode : undefined) || 'or',
+                        currentApprovers: isCurrent ? (instance.currentApprovers || []) : undefined,
+                        records: records.length > 0 ? records : undefined,
                         properties: {
                             ...(node.properties || {}),
                             assigneeName: assigneeName || undefined,
                         },
-                        status: history ? history.status : node.id === instance.currentNodeId ? (instance.status === '0' ? '0' : '1') : '',
-                        userName: assigneeName,
+                        status: history ? history.status : isCurrent ? (instance.status === '0' ? '0' : '1') : '',
+                        userName: (records.length > 1 ? records.map(r => r.userName).join(', ') : assigneeName),
                         approvedAt: this.formatDateString(history ? history.approvedAt : null),
                         comment: history ? history.comment : null,
                         auditResult: history?.auditResult || null,
@@ -297,6 +363,8 @@ export class LogicFlowService {
             currentNodeType: currentNode?.type || null,
             currentApproverId: instance.currentApproverId,
             currentApproverName,
+            currentApprovers: instance.currentApprovers || null,
+            approvalMode: instance.approvalMode || null,
             isSuspended: Boolean(instance.formData?._isSuspended && instance.currentNodeId),
             formData: instance.formData,
             steps,
@@ -436,6 +504,8 @@ export class LogicFlowService {
                 instance.status = stepResult.status;
                 instance.currentNodeId = stepResult.currentNodeId;
                 instance.currentApproverId = stepResult.currentApproverId;
+                instance.currentApprovers = stepResult.currentApprovers || null;
+                instance.approvalMode = stepResult.approvalMode || 'or';
 
                 if (stepResult.isCompleted) {
                     const endNode = (graphData.nodes || []).find((n: any) => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
@@ -505,33 +575,55 @@ export class LogicFlowService {
         return { data, total };
     }
 
-    // 获取我的代办任务列表 (轻量列表，不返回 formData/approvalHistory/form，详情由 detail 接口获取)
+    // 获取我的代办任务列表 (支持单人待办 + 会签/或签多人待办)
+    // 获取我的代办任务列表 (支持单人待办 + 会签/或签多人待办)
     async getMyTodoInstances(userId: number, page?: number, pageSize: number = 10): Promise<{ data: Partial<ApprovalInstance>[]; total: number }> {
         const pageNum = page && Number(page) > 0 ? Number(page) : 1;
         const size = pageSize && Number(pageSize) > 0 ? Number(pageSize) : 10;
-        const [data, total] = await this.instanceRepo.findAndCount({
-            where: {
-                status: '1', // 待审批
-                currentApproverId: userId, // 我是当前审批人
-            },
-            select: [
-                'id',
-                'title',
-                'status',
-                'currentNodeId',
-                'applicantId',
-                'userName',
-                'workflowId',
-                'formId',
-                'currentApproverId',
-                'created_at',
-                'updated_at',
-            ],
-            skip: (pageNum - 1) * size,
-            take: size,
-            order: { id: 'DESC' }, // 最新优先
+        const targetUserId = Number(userId);
+
+        const qb = this.instanceRepo.createQueryBuilder('instance')
+            .where('instance.status = :status', { status: '1' })
+            .andWhere(
+                new Brackets(sub => {
+                    // 1. 历史单人待办兼容（无 currentApprovers 时匹配单人字段）
+                    sub.where('(instance.currentApprovers IS NULL AND instance.currentApproverId = :targetUserId)', { targetUserId })
+                    // 2. 会签/或签多人待办（MySQL 标准 JSON 数组对象包含检索）
+                       .orWhere(`JSON_CONTAINS(instance.currentApprovers, JSON_OBJECT('userId', :targetUserId, 'status', 'pending'))`, { targetUserId });
+                })
+            )
+            .select([
+                'instance.id',
+                'instance.title',
+                'instance.status',
+                'instance.currentNodeId',
+                'instance.applicantId',
+                'instance.userName',
+                'instance.workflowId',
+                'instance.formId',
+                'instance.currentApproverId',
+                'instance.approvalMode',
+                'instance.currentApprovers',
+                'instance.created_at',
+                'instance.updated_at',
+            ])
+            .skip((pageNum - 1) * size)
+            .take(size)
+            .orderBy('instance.id', 'DESC');
+
+        const [data, total] = await qb.getManyAndCount();
+
+        // 内存精准校准：对于已取出的待办单据，若包含 currentApprovers，必须确保该用户状态确为 pending
+        const filteredData = data.filter(item => {
+            const approvers = item.currentApprovers;
+            if (Array.isArray(approvers) && approvers.length > 0) {
+                const myItem = approvers.find(a => Number(a.userId) === targetUserId);
+                return myItem && myItem.status === 'pending';
+            }
+            return Number(item.currentApproverId) === targetUserId;
         });
-        return { data, total };
+
+        return { data: filteredData, total };
     }
 
     // 处理审批(同意、拒绝)
@@ -542,8 +634,19 @@ export class LogicFlowService {
         });
 
         if (!instance) throw new BadRequestException('流程实例不存在');
-        if (instance.currentApproverId != userId) throw new BadRequestException('你不是该审批任务的当前审批人');
         if (instance.status != '1') throw new BadRequestException('该任务已处理，不可重复操作');
+
+        // 🌟 待办审批人权限校验 (同时兼容单人模式与会签/或签多人模式)
+        const currentApprovers = Array.isArray(instance.currentApprovers) ? instance.currentApprovers : [];
+        const isSingleApprover = Number(instance.currentApproverId) === Number(userId);
+        const myApproverItem = currentApprovers.find(item => Number(item.userId) === Number(userId));
+
+        if (!isSingleApprover && !myApproverItem) {
+            throw new BadRequestException('你不是该审批任务的当前审批人');
+        }
+        if (myApproverItem && myApproverItem.status !== 'pending') {
+            throw new BadRequestException('你已完成该节点的审批，不可重复操作');
+        }
 
         const graphData = instance.workflow.graphData;
         const currentNodeId = instance.currentNodeId;
@@ -565,53 +668,101 @@ export class LogicFlowService {
             console.error('❌ 流程图验证失败：', validationErrors);
             throw new BadRequestException('流程图设计不完整，请联系管理员：' + validationErrors.join('; '));
         }
+
         // 查询审批人姓名
-        const userName = await this.internalusersService.findOne(userId);
+        const userObj = await this.internalusersService.findOne(userId);
+        const currentUserName = userObj?.name || (myApproverItem ? myApproverItem.userName : `用户${userId}`);
+
         // 记录审批历史
         instance.approvalHistory.push({
             nodeId: currentNodeId,
             approverId: userId,
-            userName: userName.name,
+            userName: currentUserName,
             status, // 2=通过, 3=拒绝
             comment: comment || '',
             approvedAt: this.formatDate(new Date()),
         });
 
         if (status == '3') {
-            // 拒绝：流程结束
+            // 拒绝：无论会签还是或签，只要有人驳回，整张单据立刻终止驳回
+            if (myApproverItem) {
+                myApproverItem.status = 'rejected';
+                myApproverItem.comment = comment || '';
+                myApproverItem.operateTime = this.formatDate(new Date());
+            }
             instance.status = '3';
             instance.currentNodeId = null;
             instance.currentApproverId = null;
+            instance.currentApprovers = null;
         } else if (status == '2') {
-            // 同意：查找下一个审批节点
-            try {
-                const stepResult = await this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData, instance.approvalHistory, instance.id);
-                console.log('找到下一个流转步骤:', stepResult);
+            // 同意
+            if (myApproverItem) {
+                myApproverItem.status = 'approved';
+                myApproverItem.comment = comment || '';
+                myApproverItem.operateTime = this.formatDate(new Date());
+            }
 
-                instance.status = stepResult.status;
-                instance.currentNodeId = stepResult.currentNodeId;
-                instance.currentApproverId = stepResult.currentApproverId;
+            const mode = instance.approvalMode || 'or';
+            let shouldAdvance = false;
 
-                if (stepResult.isCompleted) {
-                    const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
-                    instance.approvalHistory.push({
-                        nodeId: endNode?.id || 'end',
-                        title: '流程结束',
-                        userName: '流程引擎',
-                        status: stepResult.status,
-                        comment: stepResult.finishReason || (stepResult.status === '2' ? '流程审批结束，全部通过' : '后续流程流转结束，予以驳回'),
-                        approvedAt: this.formatDate(new Date()),
-                    });
-                    console.log(`流程结束，状态: ${stepResult.status === '2' ? '通过' : '驳回'}`);
+            if (mode === 'or' || currentApprovers.length <= 1) {
+                // 🌟 或签 / 抢办模式：只要一人同意，立即推进到下游
+                shouldAdvance = true;
+            } else if (mode === 'and') {
+                // 🌟 会签模式：必须所有人全数通过！
+                const allApproved = currentApprovers.every(item => item.status === 'approved');
+                if (allApproved) {
+                    shouldAdvance = true;
+                } else {
+                    // 仍有其他人未完成审批：保留在当前节点，等待其他会签人审批
+                    shouldAdvance = false;
+                    const nextPending = currentApprovers.find(item => item.status === 'pending');
+                    if (nextPending) {
+                        instance.currentApproverId = nextPending.userId;
+                    }
+                    instance.currentApprovers = [...currentApprovers];
+                    instance.approvalHistory = [...instance.approvalHistory];
+                    await this.instanceRepo.save(instance);
+                    console.log(`🤝 [流程引擎] 实例 #${id} 为会签节点，当前由 ${currentUserName} 审批通过，等待其他会签人继续审批...`);
+                    return { message: '会签已提交，等待其他会签人审批', isCompleted: false };
                 }
-            } catch (error: any) {
-                console.error('审批流转过程中发生错误：', error.message);
-                throw new BadRequestException(`审批流程异常：${error.message}`);
+            }
+
+            if (shouldAdvance) {
+                // 查找下一个审批节点
+                try {
+                    const stepResult = await this.traverseToNextApprovalNode(graphData, currentNodeId, instance.formData, instance.approvalHistory, instance.id);
+                    console.log('找到下一个流转步骤:', stepResult);
+
+                    instance.status = stepResult.status;
+                    instance.currentNodeId = stepResult.currentNodeId;
+                    instance.currentApproverId = stepResult.currentApproverId;
+                    instance.currentApprovers = stepResult.currentApprovers || null;
+                    instance.approvalMode = stepResult.approvalMode || 'or';
+
+                    if (stepResult.isCompleted) {
+                        const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                        instance.approvalHistory.push({
+                            nodeId: endNode?.id || 'end',
+                            title: '流程结束',
+                            userName: '流程引擎',
+                            status: stepResult.status,
+                            comment: stepResult.finishReason || (stepResult.status === '2' ? '流程审批结束，全部通过' : '后续流程流转结束，予以驳回'),
+                            approvedAt: this.formatDate(new Date()),
+                        });
+                        console.log(`流程结束，状态: ${stepResult.status === '2' ? '通过' : '驳回'}`);
+                    }
+                } catch (error: any) {
+                    console.error('审批流转过程中发生错误：', error.message);
+                    throw new BadRequestException(`审批流程异常：${error.message}`);
+                }
             }
         } else {
             throw new BadRequestException('无效的审批状态');
         }
 
+        instance.currentApprovers = instance.currentApprovers ? [...instance.currentApprovers] : null;
+        instance.approvalHistory = [...instance.approvalHistory];
         return await this.instanceRepo.save(instance);
     }
     // 辅助函数：查找并执行下一个流转节点，支持多 AI 智能体串联审查、条件分支与人工审批
@@ -660,17 +811,40 @@ export class LogicFlowService {
         }
 
         if (targetNode.type === 'rect') {
-            const assignee = targetNode.properties?.assignee;
-            if (typeof assignee !== 'number' || assignee <= 0) {
+            const rawAssignees = targetNode.properties?.assignees || targetNode.properties?.assignee;
+            let assigneeList: number[] = [];
+            if (Array.isArray(rawAssignees)) {
+                assigneeList = rawAssignees.map(id => Number(id)).filter(id => !isNaN(id) && id > 0);
+            } else if (rawAssignees && Number(rawAssignees) > 0) {
+                assigneeList = [Number(rawAssignees)];
+            }
+
+            if (assigneeList.length === 0) {
                 throw new BadRequestException(`审批节点 ${targetNode.text?.value || targetNode.id} 未配置有效审批人`);
             }
+
+            const approvalMode = targetNode.properties?.approvalMode || 'or';
+
+            // 批量查询审批人姓名
+            const approversInfo = await Promise.all(
+                assigneeList.map(async uid => {
+                    const u = await this.internalusersService.findUserSimple(uid);
+                    return {
+                        userId: uid,
+                        userName: u?.name || `用户${uid}`,
+                        status: 'pending', // 待审批
+                    };
+                })
+            );
 
             // 直接返回当前审批节点，流程挂起等待人工审批
             return {
                 isCompleted: false,
                 status: '1',
                 currentNodeId: targetNode.id,
-                currentApproverId: assignee,
+                currentApproverId: assigneeList[0], // 首位审批人作为主待办兼容
+                currentApprovers: approversInfo,
+                approvalMode,
             };
         } else if (targetNode.type === 'ai-agent') {
             console.log('🤖 [流程引擎] 流转至通用 AI 智能体审查节点:', targetNode.id, targetNode.text?.value);
@@ -1083,8 +1257,11 @@ export class LogicFlowService {
         // 🌟 节点人员配置强校验
         for (const node of nodes) {
             const nodeTitle = (typeof node?.text === 'string' ? node.text : node?.text?.value) || node.id;
-            if (node.type === 'rect' && !node.properties?.assignee) {
-                errors.push(`审批节点【${nodeTitle}】未配置审批人`);
+            if (node.type === 'rect') {
+                const hasAssignee = node.properties?.assignee || (Array.isArray(node.properties?.assignees) && node.properties.assignees.length > 0);
+                if (!hasAssignee) {
+                    errors.push(`审批节点【${nodeTitle}】未配置审批人`);
+                }
             }
             if (node.type === 'ai-agent' && !node.properties?.specialApproverId) {
                 errors.push(`AI智能审查节点【${nodeTitle}】必须配置人机协同特批人(HITL)`);
