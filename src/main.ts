@@ -18,7 +18,6 @@ async function bootstrap() {
     app.useStaticAssets(uploadsPath, { prefix: '/api/uploads' }); // 兼容你服务器
 
     app.setGlobalPrefix('api');
-    app.setGlobalPrefix('api');
 
     // 配置 Multer
     // const upload = multer({
@@ -42,10 +41,34 @@ async function bootstrap() {
                 enableImplicitConversion: true, // 禁用隐式类型转换
                 exposeUnsetFields: false, // 防止未设置字段被影响
             },
-            exceptionFactory: errors => {
-                Logger.error(errors);
-                // console.error(errors); // 打印验证错误
-                return new BadRequestException(errors); // 返回自定义的异常信息
+            exceptionFactory: (errors: ValidationError[]) => {
+                // 递归提取所有字段校验失败的提示信息
+                const extractErrors = (errList: ValidationError[]): string[] => {
+                    const result: string[] = [];
+                    for (const err of errList) {
+                        if (err.constraints) {
+                            // 🌟 软件工程人性化校验优先级：存在性 (isNotEmpty) > 类型 (isString/isNumber) > 格式
+                            // 彻底避免未填写时却提示“必须为字符串”这种机械式反直觉问题
+                            if (err.constraints.isNotEmpty) {
+                                result.push(err.constraints.isNotEmpty);
+                            }
+                            for (const [key, msg] of Object.entries(err.constraints)) {
+                                if (key !== 'isNotEmpty') {
+                                    result.push(msg);
+                                }
+                            }
+                        }
+                        if (err.children && err.children.length > 0) {
+                            result.push(...extractErrors(err.children));
+                        }
+                    }
+                    return result;
+                };
+
+                const errorMessages = extractErrors(errors);
+                const firstMessage = errorMessages[0] || '请求参数校验不合法';
+                Logger.warn(`⚠️ [参数校验拦截] 发现 ${errorMessages.length} 处参数不合法: ${errorMessages.join('; ')}`);
+                return new BadRequestException(firstMessage);
             },
         }),
     );

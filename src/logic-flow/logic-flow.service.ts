@@ -41,24 +41,25 @@ export class LogicFlowService {
 
         const graphData = createLogicFlowDto.graphData || {};
         const nodes = graphData.nodes || [];
+        console.log(nodes, 'nodes');
         const validationErrors = this.validateWorkflow(graphData);
         if (validationErrors.length > 0) {
             console.error('❌ 流程图验证失败：', validationErrors);
-            throw new BadRequestException('流程图设计不完整，请联系管理员：' + validationErrors.join('; '));
+            throw new BadRequestException('流程图设计不完整：' + validationErrors.join('; '));
         }
 
-        const getNodeText = (node: any) => (typeof node?.text === 'string' ? node.text : node?.text?.value || '');
+        const getNodeText = (node: any) => node?.text?.value || '';
 
-        // 智能查找开始节点
-        const startNodeIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '开始');
+        // 查找开始节点 (start-node)
+        const startNodeIndex = nodes.findIndex(n => n.type === 'start-node');
         if (startNodeIndex === -1) {
-            throw new BadRequestException('流程图错误，请检查开始节点（必须包含一个文字为“开始”的圆形节点）');
+            throw new BadRequestException('流程图错误：必须包含一个“开始节点”(start-node)');
         }
 
-        // 智能查找结束节点
-        const endNodeIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '结束');
+        // 查找结束节点 (end-node)
+        const endNodeIndex = nodes.findIndex(n => n.type === 'end-node');
         if (endNodeIndex === -1) {
-            throw new BadRequestException('流程图错误，请检查结束节点（必须包含一个文字为“结束”的圆形节点）');
+            throw new BadRequestException('流程图错误：必须包含一个“结束节点”(end-node)');
         }
 
         // 节点人员配置校验：rect 必须有审批人 (支持单人 assignee 或多人 assignees)，ai-agent 必须有人机协同特批人 (HITL)
@@ -76,9 +77,9 @@ export class LogicFlowService {
             }
         }
 
-        // 自动规范化节点数组顺序：将“开始”置于首位，将“结束”置于末尾，彻底消除拖拽顺序差异
+        // 自动规范化节点数组顺序：将“开始节点”置于首位，将“结束节点”置于末尾
         const startNode = nodes.splice(startNodeIndex, 1)[0];
-        const newEndIndex = nodes.findIndex(n => n.type === 'circle' && getNodeText(n) === '结束');
+        const newEndIndex = nodes.findIndex(n => n.type === 'end-node');
         const endNode = nodes.splice(newEndIndex, 1)[0];
         nodes.unshift(startNode);
         nodes.push(endNode);
@@ -172,7 +173,7 @@ export class LogicFlowService {
         // 2. 只保留我们需要显示的节点（包含 ai-agent 智能体节点，排除 diamond 条件节点）
         let steps = await Promise.all(
             pathNodes
-                .filter(node => node.type === 'rect' || node.type === 'ai-agent' || node.text?.value === '开始' || node.text?.value === '结束')
+                .filter(node => node.type === 'rect' || node.type === 'ai-agent' || node.type === 'start-node' || node.type === 'end-node')
                 .map(async node => {
                     if (node.type === 'ai-agent') {
                         const agentRole = node.properties?.agentRole || 'finance:invoice_audit';
@@ -244,9 +245,9 @@ export class LogicFlowService {
                         };
                     }
 
-                    // 普通节点 (rect, circle)
+                    // 普通节点与起止事件 (rect, start-node, end-node)
                     const nodeHistories = (instance.approvalHistory || [])
-                        .filter(h => h.nodeId === node.id || (node.text?.value === '开始' && h.nodeId === 'start') || (node.text?.value === '结束' && h.nodeId === 'end'))
+                        .filter(h => h.nodeId === node.id || (node.type === 'start-node' && h.nodeId === 'start') || (node.type === 'end-node' && h.nodeId === 'end'))
                         .map(h => ({
                             userId: Number(h.approverId || h.userId || 0),
                             userName: h.userName,
@@ -336,7 +337,7 @@ export class LogicFlowService {
                 }),
         );
         // 结束节点状态校准：直接与流程实例终态 instance.status 保持一致
-        if (steps[steps.length - 1]?.type === 'circle' && steps[steps.length - 1]?.title == '结束') {
+        if (steps[steps.length - 1]?.type === 'end-node') {
             if (instance.status === '2') {
                 steps[steps.length - 1].status = '2';
             } else if (instance.status === '3') {
@@ -375,7 +376,7 @@ export class LogicFlowService {
     /**
      * 按 formData 从“开始”节点向下遍历出实际执行路径（包含节点对象，按顺序）
      * - 遇到 diamond (排他网关)：使用 resolveConditionBranchEdge 多条件仲裁
-     * - 遇到 rect / ai-agent / circle：取唯一出边
+     * - 遇到 rect / ai-agent / start-node：取唯一出边
      * - 防止死循环（visited 检测 + safety 上限，均为严格抛异常，绝不静默丢失）
      */
     private buildExecutionPath(graphData: any, formData: Record<string, any>): any[] {
@@ -383,8 +384,8 @@ export class LogicFlowService {
         const edges = graphData.edges || [];
         const nodeMap = new Map(nodes.map((n: any) => [n.id, n]));
 
-        const startNode = nodes.find((n: any) => n.type === 'circle' && n.text?.value === '开始');
-        if (!startNode) throw new BadRequestException('流程起始节点缺失');
+        const startNode = nodes.find((n: any) => n.type === 'start-node');
+        if (!startNode) throw new BadRequestException('流程起始节点(start-node)缺失');
 
         const path: any[] = [];
         let currentNodeId: string | null = startNode.id;
@@ -408,7 +409,7 @@ export class LogicFlowService {
             path.push(currentNode);
 
             // 如果是结束节点，正常结束
-            if (currentNode.type === 'circle' && currentNode.text?.value === '结束') {
+            if (currentNode.type === 'end-node') {
                 break;
             }
 
@@ -424,7 +425,7 @@ export class LogicFlowService {
                 currentNodeId = branchEdge.targetNodeId;
                 continue;
             } else {
-                // rect / ai-agent / circle：普通节点应仅有一条有效出边
+                // rect / ai-agent / start-node：普通节点应仅有一条有效出边
                 if (outgoing.length > 1) {
                     console.warn(`⚠️ [流程引擎] 普通节点【${currentNode.text?.value || currentNode.id}】存在 ${outgoing.length} 条出边，取第一条`);
                 }
@@ -452,12 +453,11 @@ export class LogicFlowService {
         if (!workflow) throw new BadRequestException('未找到关联的审批流程');
 
         const graphData = workflow.graphData;
-        const getNodeText = (node: any) => (typeof node?.text === 'string' ? node.text : node?.text?.value || '');
-        const startNode = (graphData.nodes || []).find(node => node.type === 'circle' && getNodeText(node) === '开始');
-        if (!startNode) throw new BadRequestException('流程起始节点缺失');
+        const startNode = (graphData.nodes || []).find(node => node.type === 'start-node');
+        if (!startNode) throw new BadRequestException('流程起始节点(start-node)缺失');
 
-        const endtNode = (graphData.nodes || []).find(node => node.type === 'circle' && getNodeText(node) === '结束');
-        if (!endtNode) throw new BadRequestException('流程结束节点缺失');
+        const endNode = (graphData.nodes || []).find(node => node.type === 'end-node');
+        if (!endNode) throw new BadRequestException('流程结束节点(end-node)缺失');
 
         // 查询申请人姓名
         const userName = await this.internalusersService.findOne(userId);
@@ -508,7 +508,7 @@ export class LogicFlowService {
                 instance.approvalMode = stepResult.approvalMode || 'or';
 
                 if (stepResult.isCompleted) {
-                    const endNode = (graphData.nodes || []).find((n: any) => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                    const endNode = (graphData.nodes || []).find((n: any) => n.type === 'end-node');
                     instance.approvalHistory.push({
                         nodeId: endNode?.id || 'end',
                         title: '流程结束',
@@ -666,7 +666,7 @@ export class LogicFlowService {
         const validationErrors = this.validateWorkflow(graphData);
         if (validationErrors.length > 0) {
             console.error('❌ 流程图验证失败：', validationErrors);
-            throw new BadRequestException('流程图设计不完整，请联系管理员：' + validationErrors.join('; '));
+            throw new BadRequestException('流程图设计不完整：' + validationErrors.join('; '));
         }
 
         // 查询审批人姓名
@@ -741,7 +741,7 @@ export class LogicFlowService {
                     instance.approvalMode = stepResult.approvalMode || 'or';
 
                     if (stepResult.isCompleted) {
-                        const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                        const endNode = nodes.find(n => n.type === 'end-node');
                         instance.approvalHistory.push({
                             nodeId: endNode?.id || 'end',
                             title: '流程结束',
@@ -794,7 +794,7 @@ export class LogicFlowService {
      * - rect (人工审批): 返回当前审批人信息，流程挂起等待人工审批 (isCompleted: false, status: '1')
      * - ai-agent (AI智能审查): 调用 Agent 执行审查，注入结果/报告/历史，并自动沿着出边推进到下游目标节点
      * - diamond (条件判断): 评估条件表达式，选取匹配的分支边，递归推进到分支目标节点
-     * - circle (结束节点): 委托终态裁决器 resolveEndEvent 依据 BPMN 结束事件属性与审计事实输出终态
+     * - end-node (结束节点): 委托终态裁决器 resolveEndEvent 依据 BPMN 结束事件属性与审计事实输出终态
      */
     private async processTargetNode(
         graphData: any,
@@ -1030,7 +1030,7 @@ export class LogicFlowService {
             const nextNode = nodes.find(node => node.id === nextEdge.targetNodeId);
             if (!nextNode) throw new BadRequestException('AI节点后续节点不存在');
 
-            // 递归向下处理下一个目标节点（下一个可能是 diamond 条件分支，或者另一个 ai-agent，或者 rect 人工审批，或者 circle 结束）
+            // 递归向下处理下一个目标节点（下一个可能是 diamond 条件分支，或者另一个 ai-agent，或者 rect 人工审批，或者 end-node 结束）
             return await this.processTargetNode(graphData, nextNode, formData, approvalHistory, instanceId);
         } else if (targetNode.type === 'diamond') {
             // 🌟 工业级排他网关（Exclusive Gateway）：使用统一多条件仲裁器
@@ -1044,7 +1044,7 @@ export class LogicFlowService {
             // 分支选中的目标节点直接交由 processTargetNode 处理！
             // 无论是 rect 人工审批、ai-agent 智能体、还是另一个 diamond 条件节点，均能正确执行，绝不跳步！
             return await this.processTargetNode(graphData, branchTargetNode, formData, approvalHistory, instanceId);
-        } else if (targetNode.type === 'circle' && (targetNode.text?.value === '结束' || targetNode.properties?.endStatus || targetNode.properties?.endType)) {
+        } else if (targetNode.type === 'end-node') {
             return this.resolveEndEvent(targetNode, formData);
         } else {
             throw new BadRequestException(`不支持的节点类型: ${targetNode.type}`);
@@ -1231,10 +1231,14 @@ export class LogicFlowService {
             hasOutgoing.add(edge.sourceNodeId);
         }
 
-        // 检查所有 rect 和 ai-agent 节点是否有出边
+        // 检查非结束节点（rect, ai-agent, start-node）是否有出边
         for (const node of nodes) {
-            if ((node.type === 'rect' || node.type === 'ai-agent') && !hasOutgoing.has(node.id)) {
-                errors.push(`节点【${node.text?.value || node.id}】没有连接后续节点，请检查流程完整性`);
+            const nodeTitle = node?.text?.value || node.id;
+            if ((node.type === 'rect' || node.type === 'ai-agent' || node.type === 'start-node') && !hasOutgoing.has(node.id)) {
+                errors.push(`节点【${nodeTitle}】没有连接后续节点，请检查流程完整性`);
+            }
+            if (node.type === 'end-node' && hasOutgoing.has(node.id)) {
+                errors.push(`结束节点【${nodeTitle}】不能再连接后续节点`);
             }
         }
 
@@ -1413,7 +1417,7 @@ export class LogicFlowService {
             instance.status = '2';
             instance.currentNodeId = null;
             instance.currentApproverId = null;
-            const endNode = nodes.find(n => n.type === 'circle' && n.text?.value === '结束');
+            const endNode = nodes.find(n => n.type === 'end-node');
             instance.approvalHistory.push({
                 nodeId: endNode?.id || 'end',
                 title: '流程结束',
@@ -1454,7 +1458,7 @@ export class LogicFlowService {
                 savedInstance.currentApproverId = stepResult.currentApproverId;
 
                 if (stepResult.isCompleted) {
-                    const endNode = nodes.find(n => n.type === 'circle' && (n.text?.value === '结束' || n.properties?.endStatus));
+                    const endNode = nodes.find(n => n.type === 'end-node');
                     savedInstance.approvalHistory.push({
                         nodeId: endNode?.id || 'end',
                         title: '流程结束',

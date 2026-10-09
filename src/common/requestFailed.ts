@@ -13,18 +13,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
             return;
         }
 
-        // 设置错误信息
-        let message = exception.message ? exception.message : `${status >= 500 ? '服务异常' : '服务异常'}`;
-        // 如果是验证错误，进一步处理错误信息
-        if (exception instanceof BadRequestException) {
-            const validationErrors = exception.getResponse() as { [key: string]: any };
-            if (validationErrors && validationErrors.error) {
-                if (Array.isArray(validationErrors.message)) {
-                    message = validationErrors.message[0];
-                } else {
-                    message = validationErrors.message;
-                }
+        // 设置错误信息（统一规范提取，杜绝将对象泄露至 message）
+        const res = exception.getResponse();
+        let message: any = exception.message || (status >= 500 ? '服务异常' : '请求失败');
+
+        if (typeof res === 'string') {
+            message = res;
+        } else if (typeof res === 'object' && res !== null) {
+            const resObj = res as Record<string, any>;
+            if (Array.isArray(resObj.message)) {
+                message = resObj.message[0];
+            } else if (typeof resObj.message === 'string') {
+                message = resObj.message;
+            } else if (typeof resObj.error === 'string') {
+                message = resObj.error;
             }
+        }
+
+        // 终极防线：杜绝复杂对象直接吐给前端导致 [object Object]
+        if (typeof message !== 'string') {
+            message = (message && (message.message || message.error)) ? String(message.message || message.error) : '请求参数校验不合法';
         }
 
         const errorResponse = {
