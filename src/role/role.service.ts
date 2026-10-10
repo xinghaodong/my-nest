@@ -5,6 +5,7 @@ import { Role } from './entities/role.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Menu } from '../menus/entities/menu.entity';
+import { RedisService } from '../common/redis/redis.service';
 
 @Injectable()
 export class RoleService {
@@ -13,6 +14,7 @@ export class RoleService {
         private usersRepository: Repository<Role>,
         @InjectRepository(Menu)
         private menuRepository: Repository<Menu>,
+        private readonly redisService: RedisService,
     ) {}
     // 验证角色名称是否重复
     private async validateUniqueRoleName(name: string) {
@@ -75,7 +77,12 @@ export class RoleService {
         role.menus = menus;
         // }
         // 保存更新后的角色
-        return this.usersRepository.save(role);
+        const savedRole = await this.usersRepository.save(role);
+
+        // 分配角色菜单后，淘汰所有角色的菜单树缓存，保证权限实时生效
+        await this.redisService.delPattern('menus:*');
+
+        return savedRole;
     }
 
     /**

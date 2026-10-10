@@ -1,3 +1,4 @@
+// 全局异常过滤器 (Exception Filter)
 import { ArgumentsHost, BadRequestException, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
 
 @Catch(HttpException)

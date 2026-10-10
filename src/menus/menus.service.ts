@@ -7,6 +7,7 @@ import { In, Not, Repository, IsNull } from 'typeorm';
 import { AuthService } from '../auth/auth.service'; // 引入 AuthService
 import { RoleService } from '../role/role.service';
 import { InternalusersService } from '../internalusers/internalusers.service';
+import { RedisService } from '../common/redis/redis.service';
 
 @Injectable()
 export class MenusService {
@@ -17,7 +18,17 @@ export class MenusService {
         private readonly authService: AuthService,
         private readonly roleService: RoleService, // 注入 RoleService
         private readonly internalusersService: InternalusersService,
+        private readonly redisService: RedisService,
     ) {}
+
+    /**
+     * 清除所有用户维度的菜单缓存
+     */
+    private async clearMenuCache(): Promise<void> {
+        console.log("清空缓存")
+        await this.redisService.delPattern('menus:*');
+    }
+
     async create(createMenuDto: CreateMenuDto): Promise<Menu> {
         const { parentId, roleIds } = createMenuDto;
 
@@ -55,6 +66,9 @@ export class MenusService {
 
         // 级联保存菜单及其角色关联
         const savedMenu = await this.menuRepository.save(menu);
+
+        // 淘汰菜单缓存
+        await this.clearMenuCache();
 
         return savedMenu;
     }
@@ -99,25 +113,46 @@ export class MenusService {
         let userId = null;
         const decoded = this.authService.decode(token) as { sub: number };
         userId = decoded.sub;
-        let menus = [];
 
-        // 获取用户所属的角色
+        // 1. 获取当前用户所属的角色
         const roles = await this.internalusersService.getRoleMenusByUserId(userId);
         if (!roles || roles.length === 0) {
             throw new NotFoundException('没有找到用户对应的角色');
         }
+
+        // 2. 规范化计算“角色组合标识”（升序排列保证一致性，如 super_admin 或 2_3）
+        const hasNonSuperAdmin = roles.some(role => role.name !== '超级管理员');
+        const roleKey = !hasNonSuperAdmin
+            ? 'super_admin'
+            : roles.map(r => r.id).sort((a, b) => a - b).join('_');
+
+        // 3. 构建基于角色的全局共享缓存 Key（同角色用户共享同一份缓存）
+        const cacheKey = type !== undefined && type !== '' 
+            ? `menus:role:${roleKey}:type:${type}` 
+            : `menus:role:${roleKey}`;
+
+        // 4. 先尝试从 Redis 获取缓存
+        const cachedMenus = await this.redisService.getJson<Menu[]>(cacheKey);
+        if (cachedMenus) {
+            console.log(`🎯 [Redis 缓存命中(按角色)] key: ${cacheKey}`);
+            return cachedMenus;
+        }
+
+        console.log(`💾 [MySQL 查库与树构建(按角色)] key: ${cacheKey}`);
+
+        let menus = [];
+
         // 如果不存在超级管理员角色，就获取当前用户的菜单权限
-        if (roles.some(role => role.name !== '超级管理员')) {
+        if (hasNonSuperAdmin) {
             // 获取角色对应的菜单权限
             const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
         } else {
-            // console.log('当前账号存在超管角色');
             // 存在超管角色 查所有
             menus = await this.menuRepository.find();
         }
-        // 前端掺入type:1 把按钮类型的资源过滤掉
+        // 前端传入type:1 把按钮类型的资源过滤掉
         if (type == 1) {
             menus = menus.filter(item => item.menutype != 2);
         }
@@ -141,6 +176,10 @@ export class MenusService {
                 }
             }
         });
+
+        // 5. 回填 Redis 缓存（同角色用户全局共享，设置 2 小时过期：7200 秒）
+        await this.redisService.setJson(cacheKey, result, 7200);
+
         return result;
     }
 
@@ -182,7 +221,12 @@ export class MenusService {
         // 使用 Object.assign 更新字段
         const updatedMenuItem = Object.assign(menuItem, updateMenuDto);
         // 保存更新后的菜单
-        return this.menuRepository.save(updatedMenuItem);
+        const saved = await this.menuRepository.save(updatedMenuItem);
+        console.log("更新菜单")
+        // 淘汰菜单缓存
+        await this.clearMenuCache();
+
+        return saved;
     }
     // 删除菜单
     async remove(id: number): Promise<void> {
@@ -192,6 +236,9 @@ export class MenusService {
         if (result.affected === 0) {
             throw new HttpException('未找到菜单', 404);
         }
+
+        // 淘汰菜单缓存
+        await this.clearMenuCache();
     }
     // 详情接口
     async detail(id: number): Promise<Menu> {
@@ -230,6 +277,10 @@ export class MenusService {
             menu.sorts = ids.indexOf(menu.id) + 1;
         });
         await this.menuRepository.save(menus);
+
+        // 淘汰菜单缓存
+        await this.clearMenuCache();
+
         return true;
     }
 }

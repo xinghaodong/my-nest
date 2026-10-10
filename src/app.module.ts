@@ -25,9 +25,11 @@ import { LogicFlowModule } from './logic-flow/logic-flow.module';
 import { FormDesignModule } from './form-design/form-design.module';
 import { FundEstimateModule } from './fund-estimate/fund-estimate.module';
 import { AgentFlowModule } from './agent-flow/agent-flow.module';
+import { RedisModule } from './common/redis/redis.module';
 
 @Module({
     imports: [
+        RedisModule,
         ConfigModule.forRoot({
             isGlobal: true, // 使 ConfigModule 在整个应用程序中可用
             envFilePath: `.env.${process.env.NODE_ENV || 'development'}`, // 自动加载对应环境的 .env 文件

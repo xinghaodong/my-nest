@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 // 自定义转换逻辑
 import * as bodyParser from 'body-parser';
 import { JwtAuthGuard } from './auth/jwt.auth.guard';
+import { RedisService } from './common/redis/redis.service';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
@@ -30,6 +31,7 @@ async function bootstrap() {
         }),
     );
     // 注册全局拦截器
+    // 凡是“成功”的请求，全走这里包装成 { code: 200, message: '操作成功', data }
     app.useGlobalInterceptors(new ResponseInterceptor());
     // 启用全局验证管道
     app.useGlobalPipes(
@@ -74,7 +76,9 @@ async function bootstrap() {
     );
     // 设置全局守卫
     const reflector = app.get(Reflector);
-    app.useGlobalGuards(new JwtAuthGuard(reflector));
+    const redisService = app.get(RedisService);
+    app.useGlobalGuards(new JwtAuthGuard(reflector, redisService));
+    // 凡是“失败/报错”的请求，全走这里包装成规范的错误提示
     app.useGlobalFilters(new HttpExceptionFilter());
     // 启用 CORS
     app.enableCors({

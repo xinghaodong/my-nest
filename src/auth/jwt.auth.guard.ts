@@ -1,10 +1,14 @@
 import { Injectable, ExecutionContext, HttpStatus } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
+import { RedisService } from '../common/redis/redis.service';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-    constructor(private reflector: Reflector) {
+    constructor(
+        private reflector: Reflector,
+        private redisService: RedisService,
+    ) {
         super();
     }
 
@@ -28,9 +32,28 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         }
 
         try {
-            // 验证 Token
-            const result = await super.canActivate(context);
-            return result as boolean;
+            // 1. Passport 验证 JWT 基础签名和有效期
+            const result = (await super.canActivate(context)) as boolean;
+            if (!result) return false;
+
+            // 2. 🌟 验证 Redis 白名单中该用户的 Token 是否依然存活且一致
+            const user = request.user;
+            if (user && user.userId) {
+                // 仅当 Redis 在线可用时执行白名单精确比对；若 Redis 宕机，自动优雅降级信任 Passport 验签结果！
+                if (this.redisService.isAvailable()) {
+                    const clientToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+                    const cachedToken = await this.redisService.get(`auth:token:${user.userId}`);
+                    if (!cachedToken || cachedToken !== clientToken) {
+                        response.status(HttpStatus.OK).json({
+                            code: 401,
+                            message: '登录状态已失效或已安全退出，请重新登录.',
+                        });
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         } catch (error) {
             // 验证失败，返回 401
             response.status(HttpStatus.OK).json({
