@@ -8,6 +8,8 @@ import { FormDesign } from '../form-design/entities/form-design.entity';
 import { ApprovalInstance } from './entities/approval-instance.entity';
 import { InternalusersService } from '../internalusers/internalusers.service';
 import { AgentFlowService } from '../agent-flow/agent-flow.service';
+import { extractAllAttachmentFiles } from '../common/utils/form-attachment.util';
+import { SafeConditionEvaluator } from '../common/utils/safe-condition-evaluator.util';
 /**
  * 流程流转执行结果（严格类型定义，杜绝模糊 null 歧义与文本猜测）
  */
@@ -155,7 +157,8 @@ export class LogicFlowService {
         });
         if (!instance) throw new BadRequestException('流程实例不存在');
         console.log(instance);
-        const graphData = instance.workflow.graphData;
+        const graphData = instance.graphSnapshot || instance.workflow?.graphData;
+        if (!graphData) throw new BadRequestException('流程实例缺少流程图数据');
         const nodes = graphData.nodes || [];
         const edges = graphData.edges || [];
 
@@ -368,6 +371,8 @@ export class LogicFlowService {
             approvalMode: instance.approvalMode || null,
             isSuspended: Boolean(instance.formData?._isSuspended && instance.currentNodeId),
             formData: instance.formData,
+            formSchemaSnapshot: instance.formSchemaSnapshot || null,
+            uiConfigSnapshot: instance.uiConfigSnapshot || null,
             steps,
             edges,
         };
@@ -482,6 +487,9 @@ export class LogicFlowService {
             userName: userName.name,
             approvalHistory,
             workflowId: workflow.id,
+            graphSnapshot: graphData ? JSON.parse(JSON.stringify(graphData)) : null, // 🌟 固化流程图快照深拷贝，彻底解耦
+            formSchemaSnapshot: form.schema ? (typeof form.schema === 'string' ? JSON.parse(form.schema) : form.schema) : null, // 🌟 固化表单结构排版快照
+            uiConfigSnapshot: form.ui_config ? JSON.parse(JSON.stringify(form.ui_config)) : null, // 🌟 固化表单 UI 配置快照
             formId: form.id,
             currentApproverId: null,
         });
@@ -648,7 +656,8 @@ export class LogicFlowService {
             throw new BadRequestException('你已完成该节点的审批，不可重复操作');
         }
 
-        const graphData = instance.workflow.graphData;
+        const graphData = instance.graphSnapshot || instance.workflow?.graphData;
+        if (!graphData) throw new BadRequestException('流程实例缺少流程图数据');
         const currentNodeId = instance.currentNodeId;
         const nodes = graphData.nodes || [];
         const currentNode = nodes.find(n => n.id === currentNodeId);
@@ -848,14 +857,9 @@ export class LogicFlowService {
             };
         } else if (targetNode.type === 'ai-agent') {
             console.log('🤖 [流程引擎] 流转至通用 AI 智能体审查节点:', targetNode.id, targetNode.text?.value);
-            // 自动提取表单附件文件列表（支持任意审批业务的附件上传）
-            let attachmentFiles: any[] = [];
-            for (const key of Object.keys(formData)) {
-                if (Array.isArray(formData[key]) && formData[key].length > 0 && (formData[key][0]?.filePath || formData[key][0]?.url)) {
-                    attachmentFiles = formData[key];
-                    break;
-                }
-            }
+            // 🌟 深度递归穿透提取表单附件（支持主表单多附件、单框多文件、以及子表单多行明细中的全量发票附件）
+            const attachmentFiles = extractAllAttachmentFiles(formData);
+            console.log(`📎 [流程引擎] 从表单深度提取到 ${attachmentFiles.length} 个附件文件:`, attachmentFiles.map(f => f.name || f.fileName || f.filePath || f.url));
 
             const agentRole = targetNode.properties?.agentRole || 'finance:invoice_audit';
             const riskThreshold = Number(targetNode.properties?.riskThreshold) || 80;
@@ -1175,41 +1179,11 @@ export class LogicFlowService {
         }
     }
 
-    // 辅助函数：评估条件表达式（纯通用沙箱环境，自动数值类型转换 + 杜绝未定义变量抛错）
+    // 辅助函数：评估条件表达式（纯白名单 AST/递归下降解析，彻底拔除 eval/new Function/this 隐患）
     private evaluateCondition(condition: string, formData: Record<string, any>): boolean {
-        if (!condition || !condition.trim()) {
-            console.warn('⚠️ [条件评估] 条件表达式缺失，默认返回 false');
-            return false;
-        }
-
-        try {
-            // 使用 Proxy 拦截所有变量访问，无论访问 days、totalAmount 还是任意业务字段，未填时安全返回 undefined，彻底杜绝 "xxx is not defined" 错误
-            const sandbox = new Proxy(formData || {}, {
-                has() {
-                    return true;
-                },
-                get(target, prop: string | symbol) {
-                    if (typeof prop !== 'string') return undefined;
-                    if (prop in target) {
-                        const val = target[prop];
-                        // 字符串纯数字自动转为 Number，支持表达式中的数值计算与大小比较（如 "3" >= 3）
-                        if (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '') {
-                            return Number(val);
-                        }
-                        return val;
-                    }
-                    return undefined;
-                },
-            });
-
-            const evalFn = new Function('sandbox', `with(sandbox) { return !!(${condition}); }`);
-            const result = Boolean(evalFn(sandbox));
-            console.log(`🔍 [条件评估] 表达式 "${condition}" 评估结果: ${result}`);
-            return result;
-        } catch (e) {
-            console.warn(`⚠️ [条件评估] 条件 "${condition}" 执行异常 (${e.message})，安全降级为 false`);
-            return false;
-        }
+        const result = SafeConditionEvaluator.evaluate(condition, formData || {});
+        console.log(`🔍 [条件评估] 表达式 "${condition}" 评估结果: ${result}`);
+        return result;
     }
 
     private validateWorkflow(graphData: any): string[] {
@@ -1313,7 +1287,8 @@ export class LogicFlowService {
             throw new BadRequestException('无特批放行权限，只有当前指定的特批复核人才能操作');
         }
 
-        const graphData = instance.workflow.graphData;
+        const graphData = instance.graphSnapshot || instance.workflow?.graphData;
+        if (!graphData) throw new BadRequestException('流程实例缺少流程图数据');
         const nodes = graphData.nodes || [];
         const edges = graphData.edges || [];
         const currentNode = nodes.find(n => n.id === instance.currentNodeId);

@@ -36,6 +36,18 @@ export class ApprovalInstance {
     @Column({ type: 'bigint' })
     workflowId: number; // 关联 logic_flow.id
 
+    // 🌟 流程图快照：发起审批时刻的完整 graphData，确保历史在途单据流转与后续模板修改彻底解耦
+    @Column({ type: 'json', nullable: true })
+    graphSnapshot?: Record<string, any>;
+
+    // 🌟 表单结构快照：发起审批时刻的表单 schema，确保后续表单修改/删减字段时，历史单据排版与内容永久固化
+    @Column({ type: 'json', nullable: true })
+    formSchemaSnapshot?: Record<string, any>[] | any;
+
+    // 🌟 表单 UI 配置快照：发起审批时刻的 labelWidth、size、labelPosition 等排版配置
+    @Column({ type: 'json', nullable: true })
+    uiConfigSnapshot?: Record<string, any>;
+
     @ManyToOne(() => FormDesign, formDesign => formDesign.instances) // 多对一
     @JoinColumn({ name: 'formId' }) // 外键
     form: FormDesign;

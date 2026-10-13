@@ -26,6 +26,11 @@ export class FormDesignController {
         return this.formDesignService.findOne(+id);
     }
 
+    @Post('update')
+    update(@Body('id') id: number, @Body() updateDto: any) {
+        return this.formDesignService.update(+id, updateDto);
+    }
+
     @Post('remove')
     remove(@Body('id') id: number) {
         return this.formDesignService.remove(+id);

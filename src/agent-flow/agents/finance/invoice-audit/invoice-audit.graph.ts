@@ -28,6 +28,7 @@ import {
     ExtractedInvoiceInfo,
     ToolAuditEvidence,
 } from './tools/reimbursement.tools';
+import { extractAllAttachmentFiles } from '../../../../common/utils/form-attachment.util';
 
 const execFileAsync = promisify(execFile);
 
@@ -81,17 +82,12 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
     public async run(input: AgentRunInput): Promise<BaseAuditResult> {
         console.log(`🚀 [${this.roleName}] 启动执行 (流程实例: #${input.instanceId})...`);
 
-        // 从传入 files 或 formData 智能提取发票附件
+        // 从传入 files 或 formData 智能提取发票附件（深度递归穿透主表单、单框多附件、子表单多行明细）
         let invoiceFiles = input.files || [];
         if (invoiceFiles.length === 0 && input.formData) {
-            for (const key of Object.keys(input.formData)) {
-                const val = input.formData[key];
-                if (Array.isArray(val) && val.length > 0 && (val[0]?.filePath || val[0]?.url)) {
-                    invoiceFiles = val;
-                    break;
-                }
-            }
+            invoiceFiles = extractAllAttachmentFiles(input.formData);
         }
+        console.log(`📎 [${this.roleName}] 实际装载发票凭证数量: ${invoiceFiles.length} 张`, invoiceFiles.map(f => f.name || f.fileName || f.filePath || f.url));
 
         const declaredAmount = Number(input.context?.declaredAmount ?? 0);
 
@@ -325,6 +321,8 @@ export class InvoiceAuditAgentGraph implements IAgentGraph {
         const summaryText = extractedDetails
             .map((d, i) => `【发票${i + 1}】文件名: ${d.name} | 票面金额: ￥${d.amount} | 发票号码: ${d.invoiceNumber || '未识别'} | 购买方抬头: ${d.buyerName || '未识别'} (税号: ${d.buyerTaxCode || '未识别'}) | 销售方: ${d.sellerName || '未识别'} | 开票日期: ${d.invoiceDate || '未识别'}`)
             .join('\n');
+
+        console.log(`💰 [发票金额合计] 成功提取 ${invoiceFiles.length} 张发票凭证 | 票面合计总金额: ￥${totalExtractedAmount.toFixed(2)} (表单申报总金额: ￥${state.declaredAmount || 0})`);
 
         return {
             extractedText: summaryText,
