@@ -3,16 +3,36 @@ import path from 'node:path';
 
 // 支持通过环境变量指定，使用 127.0.0.1 避免 Windows IPv6(::1) EACCES 错误，端口 3050
 const ODM_URL = process.env.ODM_URL || 'http://127.0.0.1:3050';
-const IMAGES_DIR = path.resolve('./images');
+const CURRENT_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+
+// 灵活识别相片目录：支持命令行指定、默认 images 目录、降级 img 目录
+function resolveImagesDir() {
+  if (process.argv[2] && fs.existsSync(process.argv[2])) {
+    return path.resolve(process.argv[2]);
+  }
+  const defaultDir = path.join(CURRENT_DIR, 'images');
+  if (fs.existsSync(defaultDir) && fs.readdirSync(defaultDir).some(f => /\.(jpe?g)$/i.test(f))) {
+    return defaultDir;
+  }
+  const fallbackDir = path.join(CURRENT_DIR, 'img');
+  if (fs.existsSync(fallbackDir) && fs.readdirSync(fallbackDir).some(f => /\.(jpe?g)$/i.test(f))) {
+    return fallbackDir;
+  }
+  return defaultDir;
+}
+
+const IMAGES_DIR = resolveImagesDir();
+const LOCAL_DATA_DIR = path.join(CURRENT_DIR, 'odm_data');
+
 
 async function runMinimalReconstruction() {
   console.log('==============================================');
-  console.log('🚀 开始执行三维重建最小闭环 Demo (CPU 极速模式)');
+  console.log('🚀 开始执行三维重建最小闭环 Demo (RTX 3060 GPU 极速模式)');
   console.log(`🔗 目标 NodeODM 引擎地址: ${ODM_URL}`);
   console.log(`📁 读取图片目录: ${IMAGES_DIR}`);
   console.log('==============================================\n');
 
-  // 1. 集显 CPU 极速参数配置（专为快速生成 3D Tiles 优化）
+  // 1. GPU 极速参数配置（专为快速生成 3D Tiles 优化）
   const options = [
     { name: '3d-tiles', value: true },          // 核心：强制输出 Cesium 3D Tiles
     { name: 'use-exif', value: true },          // 提取照片内嵌的 POS/GPS 坐标
@@ -91,17 +111,31 @@ async function runMinimalReconstruction() {
         console.log('🎉 三维重建全部完成！');
         console.log(`⏱ 总耗时: ${(info.processingTime / 1000).toFixed(1)} 秒`);
         console.log(`📁 3D Tiles 入口文件位于本地:`);
-        console.log(path.resolve(`./odm_data/${uuid}/3d_tiles/model/tileset.json`));
+        console.log(path.join(LOCAL_DATA_DIR, uuid, '3d_tiles/model/tileset.json'));
         console.log('==============================================');
         
-        fs.writeFileSync(
-          path.resolve('./odm_data/latest_task.json'),
-          JSON.stringify({
-            uuid,
-            completedAt: new Date().toISOString(),
-            tilesetUrl: `http://localhost:8088/${uuid}/3d_tiles/model/tileset.json`
-          }, null, 2)
-        );
+        // 自动将 WSL 原生 ext4 中的计算成果同步复制到本地 Windows odm_data 目录
+        const wslTaskDir = `\\\\wsl$\\Ubuntu-22.04\\var\\lib\\odm_data\\${uuid}`;
+        const localTaskDir = path.join(LOCAL_DATA_DIR, uuid);
+        if (fs.existsSync(wslTaskDir) && !fs.existsSync(localTaskDir)) {
+          try {
+            console.log(`正在将三维实景成果同步到本地目录: ${localTaskDir}...`);
+            fs.cpSync(wslTaskDir, localTaskDir, { recursive: true });
+            console.log('✔ 本地成果同步完成！可在 VS Code 文件树中直接查看。');
+          } catch (syncErr) {
+            console.warn('同步本地目录警告:', syncErr.message);
+          }
+        }
+
+        const taskInfo = JSON.stringify({
+          uuid,
+          completedAt: new Date().toISOString(),
+          tilesetUrl: `http://localhost:8088/${uuid}/3d_tiles/model/tileset.json`
+        }, null, 2);
+
+        try { fs.writeFileSync(path.join(LOCAL_DATA_DIR, 'latest_task.json'), taskInfo); } catch {}
+        try { fs.writeFileSync('\\\\wsl$\\Ubuntu-22.04\\var\\lib\\odm_data\\latest_task.json', taskInfo); } catch {}
+
         break;
       }
 
