@@ -8,15 +8,44 @@ import { ConfigService } from '@nestjs/config';
 import * as bodyParser from 'body-parser';
 import { JwtAuthGuard } from './auth/jwt.auth.guard';
 import { RedisService } from './common/redis/redis.service';
-import { join } from 'path';
+import { join, resolve } from 'path';
+import * as fs from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
 async function bootstrap() {
     // 加上泛型 <NestExpressApplication>
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
-    // 关键就这三行（根据你刚才打印的结果写死即可）
+    const configService = app.get(ConfigService);
+
+    // 1. 最优先开启全局 CORS (允许动态反射来源、方法与请求头，完美支持 credentials)
+    app.enableCors({
+        origin: true,
+        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+        allowedHeaders: '*',
+        credentials: true,
+    });
+
+    // 静态资源跨域与缓存响应头配置（解决 Cesium 3D Tiles / b3dm 跨域问题）
+    const staticOptions = {
+        setHeaders: (res: any) => {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', '*');
+        },
+    };
+
+    // 静态资源托管：上传附件目录
     const uploadsPath = join(process.cwd(), 'uploads');
-    app.useStaticAssets(uploadsPath, { prefix: '/uploads' });
-    app.useStaticAssets(uploadsPath, { prefix: '/api/uploads' }); // 兼容你服务器
+    app.useStaticAssets(uploadsPath, { prefix: '/uploads', ...staticOptions });
+    app.useStaticAssets(uploadsPath, { prefix: '/api/uploads', ...staticOptions });
+
+    // 静态资源托管：实景三维 3D Tiles 产出目录 (Cesium 可直接跨域请求)
+    const rawOdmDataDir = configService.get<string>('ODM_DATA_DIR', 'uploads/odm_cache');
+    const odmDataPath = resolve(process.cwd(), rawOdmDataDir);
+    if (!fs.existsSync(odmDataPath)) {
+        fs.mkdirSync(odmDataPath, { recursive: true });
+    }
+    app.useStaticAssets(odmDataPath, { prefix: '/models', ...staticOptions });
+    app.useStaticAssets(odmDataPath, { prefix: '/api/models', ...staticOptions });
 
     app.setGlobalPrefix('api');
 
@@ -80,13 +109,7 @@ async function bootstrap() {
     app.useGlobalGuards(new JwtAuthGuard(reflector, redisService));
     // 凡是“失败/报错”的请求，全走这里包装成规范的错误提示
     app.useGlobalFilters(new HttpExceptionFilter());
-    // 启用 CORS
-    app.enableCors({
-        origin: '*', // 允许所有来源访问
-        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-        allowedHeaders: 'Content-Type, Authorization',
-    });
-    const configService = app.get(ConfigService);
+
     const port = configService.get<number>('PORT', 3001);
     const host = configService.get<string>('HOST', '0.0.0.0');
 

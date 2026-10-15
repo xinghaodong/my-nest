@@ -1,3 +1,4 @@
+# 该文件是学习和测试使用 和nest项目无关
 # OpenDroneMap (NodeODM) 航测实景三维全流程与 3D Tiles 坐标轴 Bug 深度排查指南
 
 ---
@@ -140,7 +141,7 @@ npx -y http-server "d:/xuexi/nodes/nest/odm-demo/odm_data" -p 8088 --cors
   - **优点**：不需要改动 Docker 镜像内部，适合只在 CesiumJS 单一平台且模型只有 1 层切片时临时修补。
   - **缺点**：`gltfUpAxis` 非 OGC 3D Tiles 官方标准字段，跨平台（如 Unreal、Unity、QGIS 3D、SuperMap）时会被忽略导致倒立；且当切片规模大存在多级 LOD 时，手动递归修改各层级包围盒极易出错导致视锥剔除（Culling）模型闪烁。
 
-### 方案 B：源头治本（给 `Obj2Tiles` 传递 `-t` 参数）——【推荐最佳实践】
+ 
 - **做法**：
   `Obj2Tiles` 工具作者专门设计了 `-t` 参数：
   ```text

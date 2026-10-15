@@ -26,6 +26,7 @@ import { FormDesignModule } from './form-design/form-design.module';
 import { FundEstimateModule } from './fund-estimate/fund-estimate.module';
 import { AgentFlowModule } from './agent-flow/agent-flow.module';
 import { RedisModule } from './common/redis/redis.module';
+import { ReconstructionModule } from './reconstruction/reconstruction.module';
 
 @Module({
     imports: [
@@ -80,6 +81,7 @@ import { RedisModule } from './common/redis/redis.module';
         FormDesignModule,
         FundEstimateModule,
         AgentFlowModule,
+        ReconstructionModule,
     ],
     controllers: [AppController],
     providers: [AppService],

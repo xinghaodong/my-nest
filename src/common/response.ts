@@ -11,13 +11,14 @@ interface ApiResponse<T> {
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
-    intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
-        // 【1. 前置阶段】：Controller 执行之前 在这里写代码（next.handle() 执行之前）
-        // 比如：const start = Date.now(); 记录请求到达的时间点
+    intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+        const req = context.switchToHttp().getRequest();
+        // 如果是 SSE 长连接或者文件流，直接放行，避免破坏 text/event-stream 格式
+        if (req?.headers?.accept === 'text/event-stream' || req?.url?.includes('/stream')) {
+            return next.handle();
+        }
+
         return next.handle().pipe(
-            // 【2. 后置阶段】：在这里写代码（Controller 算完 return 之后）
-            // 比如：用 map 把 Controller 返回的 data 打包成 { code: 200, data }
-            // 比如：console.log(`耗时: ${Date.now() - start}ms`);
             map(data => ({
                 data: data,
                 code: 200,
