@@ -17,7 +17,6 @@ import { RoleModule } from './role/role.module';
 import { DateFormatMiddleware } from './common/middleware/formattingTime';
 import { AuthModule } from './auth/auth.module';
 import { OrgManagementModule } from './systemSetting/org-management/org-management.module';
-import { ProcessApprovalModule } from './process-approval/process-approval.module';
 import { AiModule } from './ai-com/ai-com.module';
 import { CesiumModule } from './cesium/cesium.module';
 import { VideoModule } from './video/video.module';
@@ -73,7 +72,6 @@ import { ReconstructionModule } from './reconstruction/reconstruction.module';
         RoleModule,
         AuthModule, // 导入 InternalusersModule
         OrgManagementModule,
-        ProcessApprovalModule,
         AiModule,
         CesiumModule,
         VideoModule,

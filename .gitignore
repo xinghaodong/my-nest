@@ -62,3 +62,6 @@ odm-demo/images/
 odm-demo/img/
 odm-demo/*.zip
 
+# 本地 Node 版本管理配置 (避免不同电脑环境冲突)
+.nvmdrc
+.nvmrc
