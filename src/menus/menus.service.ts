@@ -85,15 +85,16 @@ export class MenusService {
         if (!roles || roles.length === 0) {
             throw new NotFoundException('没有找到用户对应的角色');
         }
-        // 如果不存在超级管理员角色，就获取当前用户的菜单权限
-        if (roles.some(role => role.name !== '超级管理员')) {
+        // 只要用户具有超级管理员角色，就享有超管所有权限
+        const isSuperAdmin = roles.some(role => role.name === '超级管理员');
+        if (isSuperAdmin) {
+            // 存在超管角色 查所有
+            menus = await this.menuRepository.find();
+        } else {
             // 获取角色对应的菜单权限
             const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
-        } else {
-            // 存在超管角色 查所有
-            menus = await this.menuRepository.find();
         }
         // 过滤掉 menutype == 1
         menus = menus.filter(menu => menu.menutype == 2);
@@ -120,9 +121,9 @@ export class MenusService {
             throw new NotFoundException('没有找到用户对应的角色');
         }
 
-        // 2. 规范化计算“角色组合标识”（升序排列保证一致性，如 super_admin 或 2_3）
-        const hasNonSuperAdmin = roles.some(role => role.name !== '超级管理员');
-        const roleKey = !hasNonSuperAdmin
+        // 2. 规范化计算“角色组合标识”（只要包含超级管理员，统一拥有 super_admin 全局最高权限）
+        const isSuperAdmin = roles.some(role => role.name === '超级管理员');
+        const roleKey = isSuperAdmin
             ? 'super_admin'
             : roles.map(r => r.id).sort((a, b) => a - b).join('_');
 
@@ -142,15 +143,15 @@ export class MenusService {
 
         let menus = [];
 
-        // 如果不存在超级管理员角色，就获取当前用户的菜单权限
-        if (hasNonSuperAdmin) {
+        // 只要包含超级管理员，无条件查全量菜单；否则按角色分配的菜单权限过滤
+        if (isSuperAdmin) {
+            // 存在超管角色 查所有
+            menus = await this.menuRepository.find();
+        } else {
             // 获取角色对应的菜单权限
             const menuIds = await this.roleService.getMenuIdsByRoleIds(roles.map(role => role.id));
             // 获取所有菜单，过滤出当前角色有权限的菜单
             menus = await this.menuRepository.find({ where: { id: In(menuIds) } });
-        } else {
-            // 存在超管角色 查所有
-            menus = await this.menuRepository.find();
         }
         // 前端传入type:1 把按钮类型的资源过滤掉
         if (type == 1) {

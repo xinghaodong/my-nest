@@ -48,6 +48,10 @@ export class CreateMenuDto {
     @IsNotEmpty({ message: '资源编码不能为空' })
     code: string;
 
+    // 资源类型 菜单 or 按钮
+    @IsNotEmpty({ message: '资源类型不能为空' })
+    menutype: string;
+
     // 角色集合
     @IsOptional()
     @Type(() => Number)
