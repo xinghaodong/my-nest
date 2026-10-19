@@ -82,7 +82,13 @@ export class InternalusersService {
 
     async findAll(page?: number, pageSize: number = 10): Promise<{ data: InternalUser[]; total: number }> {
         console.log('findAll', page, pageSize);
-        const queryBuilder = this.usersRepository.createQueryBuilder('user').leftJoinAndSelect('user.avatar', 'avatar'); // 加载关联的 avatar 信息
+        const queryBuilder = this.usersRepository
+            .createQueryBuilder('user')
+            .leftJoin('user.avatar', 'avatar')
+            .addSelect(['avatar.id', 'avatar.filePath']) // 仅加载头像所需核心字段
+            .leftJoin('user.roles', 'roles')
+            .addSelect(['roles.id', 'roles.name']) //  仅加载角色 id 与 name，消除全表冗余传输
+            .orderBy('user.id', 'DESC');
 
         if (page !== undefined && page !== null) {
             const skip = (page - 1) * pageSize;
@@ -97,7 +103,14 @@ export class InternalusersService {
     }
 
     async findAllNoPage(): Promise<InternalUser[]> {
-        const users = await this.usersRepository.find();
+        const users = await this.usersRepository.find({
+            relations: ['roles', 'avatar'],
+            select: {
+                roles: { id: true, name: true },
+                avatar: { id: true, filePath: true },
+            },
+            order: { id: 'DESC' },
+        });
         return plainToInstance(InternalUser, users);
     }
 
