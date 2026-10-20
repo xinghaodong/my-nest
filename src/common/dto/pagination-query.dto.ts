@@ -1,6 +1,5 @@
-// src/common/dto/pagination-query.dto.ts
-import { Type } from 'class-transformer';
-import { IsOptional, IsInt, Min, Max, IsString } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
+import { IsOptional, IsInt, Min, Max, IsString, IsArray } from 'class-validator';
 
 /**
  * 通用分页与高级查询基准 DTO
@@ -31,6 +30,27 @@ export class PaginationQueryDto {
     /** 范围查询：结束时间 */
     @IsOptional()
     endTime?: string;
+
+    /** 范围查询：创建时间区间 (直接支持与列名同名的数组或逗号字符串) */
+    @IsOptional()
+    @Transform(({ value }) => {
+        if (!value) return undefined;
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') return value.split(',').map(s => s.trim());
+        return value;
+    })
+    @IsArray()
+    created_at?: string[];
+
+    @IsOptional()
+    @Transform(({ value }) => {
+        if (!value) return undefined;
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') return value.split(',').map(s => s.trim());
+        return value;
+    })
+    @IsArray()
+    updated_at?: string[];
 }
 
 /**

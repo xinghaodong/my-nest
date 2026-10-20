@@ -1,4 +1,5 @@
 // src/common/services/base.service.ts
+// 通用 CRUD 查询与分页引擎（ORM 抽象基类）
 import { Repository, SelectQueryBuilder, ObjectLiteral } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { PaginationQueryDto, PageResult } from '../dto/pagination-query.dto';
@@ -7,7 +8,7 @@ export interface QueryFieldOptions<T> {
     /** 实体在 QueryBuilder 中的别名，未提供时默认使用实体的 targetName 小写或 'entity' */
     alias?: string;
 
-    /** 模糊匹配字段 (执行 column LIKE :val) */
+    /** 模糊匹配字段 (执行 column LIKE :val) */ 
     likeFields?: (keyof T | string)[];
 
     /** 精确匹配字段 (执行 column = :val) */
@@ -23,7 +24,11 @@ export interface QueryFieldOptions<T> {
     /** 全局模糊搜索（queryDto.keyword）作用的字段列表，未指定时默认使用 likeFields */
     searchFields?: (keyof T | string)[];
 
-    /** 范围查询对应的时间字段，默认 'created_at'，有 startTime/endTime 时生效 */
+    /**
+     * 范围查询对应的时间字段，支持单个或多个
+     * 例如：'created_at' 或 ['created_at', 'updated_at']，默认 ['created_at', 'updated_at']
+     */
+    dateFields?: (keyof T | string)[] | (keyof T | string);
     dateField?: keyof T | string;
 
     /** 默认排序规则，未指定时默认为 { [`${alias}.id`]: 'DESC' } */
@@ -115,14 +120,42 @@ export abstract class BaseService<T extends ObjectLiteral> {
             }
         }
 
-        // 7. 时间范围检索 (startTime / endTime)
-        const dateField = options.dateField ? String(options.dateField) : 'created_at';
-        const dateCol = dateField.includes('.') ? dateField : `${alias}.${dateField}`;
-        if (queryDto.startTime) {
-            qb.andWhere(`${dateCol} >= :startTime`, { startTime: queryDto.startTime });
-        }
-        if (queryDto.endTime) {
-            qb.andWhere(`${dateCol} <= :endTime`, { endTime: queryDto.endTime });
+        // 7. 多时间维度范围检索 (支持 created_at, updated_at 等多个时间字段区间检索，自动隔离参数与闭合时分秒)
+        const rawDateFields = options.dateFields || options.dateField || ['created_at', 'updated_at'];
+        const dateFieldsList = Array.isArray(rawDateFields) ? rawDateFields : [rawDateFields];
+
+        for (const df of dateFieldsList) {
+            const fieldStr = String(df);
+            const dateKey = fieldStr.includes('.') ? fieldStr.split('.').pop()! : fieldStr;
+            const dateCol = fieldStr.includes('.') ? fieldStr : `${alias}.${fieldStr}`;
+
+            let start: string | undefined;
+            let end: string | undefined;
+
+            // 优先提取与当前列同名的区间数组 (如 queryDto.created_at 或 queryDto.updated_at)
+            const rangeVal = (queryDto as any)[dateKey];
+            if (Array.isArray(rangeVal) && rangeVal.length >= 2) {
+                start = rangeVal[0];
+                end = rangeVal[1];
+            }
+
+            // 若当前字段为首个时间字段且有通用的 startTime / endTime，则回退支持
+            if (!start && !end && fieldStr === String(dateFieldsList[0])) {
+                start = queryDto.startTime;
+                end = queryDto.endTime;
+            }
+
+            const safeKey = dateKey.replace(/[^a-zA-Z0-9_]/g, '_');
+            if (start && typeof start === 'string' && start.trim()) {
+                const paramStart = `start_${safeKey}`;
+                const startStr = start.trim().length === 10 ? `${start.trim()} 00:00:00` : start.trim();
+                qb.andWhere(`${dateCol} >= :${paramStart}`, { [paramStart]: startStr });
+            }
+            if (end && typeof end === 'string' && end.trim()) {
+                const paramEnd = `end_${safeKey}`;
+                const endStr = end.trim().length === 10 ? `${end.trim()} 23:59:59` : end.trim();
+                qb.andWhere(`${dateCol} <= :${paramEnd}`, { [paramEnd]: endStr });
+            }
         }
 
         // 8. 排序配置

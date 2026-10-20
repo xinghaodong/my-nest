@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { FormDesignService } from './form-design.service';
 import { CreateFormDesignDto } from './dto/create-form-design.dto';
+import { QueryFormDesignDto } from './dto/query-form-design.dto';
 
 @Controller('form-design')
 export class FormDesignController {
@@ -12,8 +13,8 @@ export class FormDesignController {
     }
 
     @Get('find')
-    findAll(@Query('page') page: number, @Query('pageSize') pageSize: number) {
-        return this.formDesignService.findAll(page, pageSize);
+    findAll(@Query() query: QueryFormDesignDto) {
+        return this.formDesignService.findAll(query);
     }
 
     @Get('findAll')

@@ -3,13 +3,18 @@ import { CreateFormDesignDto } from './dto/create-form-design.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FormDesign } from './entities/form-design.entity';
 import { Repository } from 'typeorm';
+import { BaseService } from '../common/services/base.service';
+import { PageResult } from '../common/dto/pagination-query.dto';
+import { QueryFormDesignDto } from './dto/query-form-design.dto';
 
 @Injectable()
-export class FormDesignService {
+export class FormDesignService extends BaseService<FormDesign> {
     constructor(
         @InjectRepository(FormDesign)
         private logicFlowRepository: Repository<FormDesign>,
-    ) {}
+    ) {
+        super(logicFlowRepository);
+    }
 
     private cleanSchema(schema: any[]): any[] {
         return schema.map(item => {
@@ -45,12 +50,17 @@ export class FormDesignService {
         return await this.logicFlowRepository.save(formDesign);
     }
 
-    async findAll(page?: number, pageSize: number = 10): Promise<{ data: FormDesign[]; total: number }> {
-        const [data, total] = await this.logicFlowRepository.findAndCount({
-            skip: (page - 1) * pageSize,
-            take: pageSize,
+    /**
+     * 分页多条件高级查询动态表单列表
+     * 继承 BaseService 引擎，支持表单名称模糊检索、状态精确匹配及创建/更新时间区间检索
+     */
+    async findAll(query: QueryFormDesignDto = new QueryFormDesignDto()): Promise<PageResult<FormDesign>> {
+        return this.findPage(query, {
+            alias: 'form',
+            likeFields: ['name'],
+            exactFields: ['status'],
+            dateFields: ['created_at', 'updated_at'],
         });
-        return { data: data, total };
     }
 
     async findAllNoPage(status?: string): Promise<FormDesign[]> {

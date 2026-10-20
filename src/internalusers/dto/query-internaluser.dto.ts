@@ -1,5 +1,4 @@
-// src/internalusers/dto/query-internaluser.dto.ts
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsArray } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
@@ -28,7 +27,7 @@ export class QueryInternaluserDto extends PaginationQueryDto {
     @Type(() => Number)
     organid?: number;
 
-    /** 角色筛选 (兼容前端传入 roleIds) */
+    /** 角色筛选 (统一契约：roles，支持数字数组或逗号分隔) */
     @IsOptional()
     @Transform(({ value }) => {
         if (!value) return undefined;
@@ -42,21 +41,7 @@ export class QueryInternaluserDto extends PaginationQueryDto {
         if (typeof value === 'number') return [value];
         return value;
     })
-    roleIds?: number[];
-
-    /** 角色筛选 (兼容前端直接传递 roles 属性) */
-    @IsOptional()
-    @Transform(({ value }) => {
-        if (!value) return undefined;
-        if (Array.isArray(value)) return value.map(v => Number(v)).filter(n => !isNaN(n));
-        if (typeof value === 'string') {
-            return value
-                .split(',')
-                .map(v => Number(v.trim()))
-                .filter(n => !isNaN(n));
-        }
-        if (typeof value === 'number') return [value];
-        return value;
-    })
+    @IsArray()
     roles?: number[];
 }
+

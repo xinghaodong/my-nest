@@ -90,11 +90,6 @@ export class InternalusersService extends BaseService<InternalUser> {
      * 基于 BaseService 通用引擎，支持账号/姓名/邮箱模糊检索、组织机构精确匹配、角色多选及时间区间筛选
      */
     async findAll(query: QueryInternaluserDto = new QueryInternaluserDto()): Promise<PageResult<InternalUser>> {
-        // 角色筛选参数平滑容错：支持 roles 字段回退赋值给 roleIds
-        if (!query.roleIds && query.roles) {
-            query.roleIds = query.roles;
-        }
-
         return this.findPage(
             query,
             {
@@ -102,9 +97,9 @@ export class InternalusersService extends BaseService<InternalUser> {
                 likeFields: ['username', 'name', 'email'],
                 exactFields: ['organid'],
                 inFields: {
-                    'roles.id': 'roleIds',
+                    'roles.id': 'roles',
                 },
-                dateField: 'created_at',
+                dateFields: ['created_at', 'updated_at'],
             },
             qb => {
                 qb.leftJoin('user.avatar', 'avatar')

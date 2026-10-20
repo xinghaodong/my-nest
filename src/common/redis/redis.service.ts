@@ -26,8 +26,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
             lazyConnect: true,
             maxRetriesPerRequest: 1,
             retryStrategy: times => {
-                // 重试 3 次后暂时停止频繁重试，避免刷屏
-                if (times > 3) {
+                // 重试 10 次后暂时停止频繁重试，避免刷屏
+                if (times > 10) {
                     return null;
                 }
                 return Math.min(times * 1000, 3000);
