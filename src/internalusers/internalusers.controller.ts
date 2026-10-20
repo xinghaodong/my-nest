@@ -4,14 +4,16 @@ import { CreateInternaluserDto } from './dto/create-internaluser.dto';
 import { UpdateInternaluserDto } from './dto/update-internaluser.dto';
 import { InternalUser } from './entities/internaluser.entity';
 
+import { QueryInternaluserDto } from './dto/query-internaluser.dto';
+
 @Controller('internalusers')
 export class InternalusersController {
     constructor(private readonly internalusersService: InternalusersService) {}
-    // 查询用户
+    // 分页与多条件高级查询用户
     // @UseGuards(JwtAuthGuard)
     @Get('find')
-    async findAll(@Query('page') page: number, @Query('pageSize') pageSize: number) {
-        return this.internalusersService.findAll(page, pageSize);
+    async findAll(@Query() query: QueryInternaluserDto) {
+        return this.internalusersService.findAll(query);
     }
 
     // 查询全部用户不分页

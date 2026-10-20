@@ -10,9 +10,12 @@ import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
 import { OrgManagementService } from '../systemSetting/org-management/org-management.service';
 import { plainToInstance } from 'class-transformer';
+import { BaseService } from '../common/services/base.service';
+import { PageResult } from '../common/dto/pagination-query.dto';
+import { QueryInternaluserDto } from './dto/query-internaluser.dto';
 
 @Injectable()
-export class InternalusersService {
+export class InternalusersService extends BaseService<InternalUser> {
     constructor(
         @InjectRepository(InternalUser)
         private usersRepository: Repository<InternalUser>,
@@ -26,7 +29,9 @@ export class InternalusersService {
         private readonly configService: ConfigService,
         // 注入组织服务
         private readonly orgManagementService: OrgManagementService, // 注入 OrgManagementService
-    ) {}
+    ) {
+        super(usersRepository);
+    }
     // 检测邮箱，账号是否存在 (支持新增与更新时的严格排他唯一性校验)
     async checkEmail(user: { email?: string; username?: string }, updateId: number = 0): Promise<void> {
         const { email, username } = user;
@@ -80,26 +85,34 @@ export class InternalusersService {
         return null; // 验证失败返回 null
     }
 
-    async findAll(page?: number, pageSize: number = 10): Promise<{ data: InternalUser[]; total: number }> {
-        console.log('findAll', page, pageSize);
-        const queryBuilder = this.usersRepository
-            .createQueryBuilder('user')
-            .leftJoin('user.avatar', 'avatar')
-            .addSelect(['avatar.id', 'avatar.filePath']) // 仅加载头像所需核心字段
-            .leftJoin('user.roles', 'roles')
-            .addSelect(['roles.id', 'roles.name']) //  仅加载角色 id 与 name，消除全表冗余传输
-            .orderBy('user.id', 'DESC');
-
-        if (page !== undefined && page !== null) {
-            const skip = (page - 1) * pageSize;
-            queryBuilder.skip(skip).take(pageSize);
+    /**
+     * 分页多条件高级查询内部用户列表
+     * 基于 BaseService 通用引擎，支持账号/姓名/邮箱模糊检索、组织机构精确匹配、角色多选及时间区间筛选
+     */
+    async findAll(query: QueryInternaluserDto = new QueryInternaluserDto()): Promise<PageResult<InternalUser>> {
+        // 角色筛选参数平滑容错：支持 roles 字段回退赋值给 roleIds
+        if (!query.roleIds && query.roles) {
+            query.roleIds = query.roles;
         }
 
-        let [data, total] = await queryBuilder.getManyAndCount();
-        data = plainToInstance(InternalUser, data);
-
-        // 使用 formatUser 函数处理每个用户的字段
-        return { data: data, total };
+        return this.findPage(
+            query,
+            {
+                alias: 'user',
+                likeFields: ['username', 'name', 'email'],
+                exactFields: ['organid'],
+                inFields: {
+                    'roles.id': 'roleIds',
+                },
+                dateField: 'created_at',
+            },
+            qb => {
+                qb.leftJoin('user.avatar', 'avatar')
+                    .addSelect(['avatar.id', 'avatar.filePath'])
+                    .leftJoin('user.roles', 'roles')
+                    .addSelect(['roles.id', 'roles.name']);
+            },
+        );
     }
 
     async findAllNoPage(): Promise<InternalUser[]> {
